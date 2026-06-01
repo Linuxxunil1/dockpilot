@@ -1,0 +1,59 @@
+# dockpilot – Traefik-Integration
+#
+# Dieses Snippet ersetzt den "ports"-Block in docker-compose.example.yaml.
+# Voraussetzung: Traefik läuft im externen Netzwerk "proxy" mit einem
+# konfigurierten certresolver (z.B. "letsencrypt").
+
+services:
+  dockpilot:
+    image: ghcr.io/linuxxunil1/dockpilot:latest
+    container_name: dockpilot
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - DASH_USER=admin
+      - DASH_PASSWORD=changeme       # ← Sicheres Passwort setzen!
+      - DASH_SECRET=changeme         # ← openssl rand -hex 32
+      - STACKS_DIR=/opt/dockpilot/stacks
+    networks:
+      - proxy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/dockpilot/stacks:/opt/dockpilot/stacks
+      - /opt/dockpilot/data:/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dockpilot.rule=Host(`dockpilot.example.com`)"  # ← Domain
+      - "traefik.http.routers.dockpilot.entrypoints=websecure"
+      - "traefik.http.routers.dockpilot.tls=true"
+      - "traefik.http.routers.dockpilot.tls.certresolver=letsencrypt"        # ← Resolver
+      - "traefik.http.routers.dockpilot.service=dockpilot"
+      - "traefik.http.services.dockpilot.loadbalancer.server.port=8080"
+      # Optional – mTLS aktivieren (nach Setup-Wizard):
+      # - "traefik.http.routers.dockpilot.tls.options=mtls@file"
+
+volumes: {}
+
+networks:
+  proxy:
+    external: true
+    name: proxy   # ← Name des Traefik-Netzwerks
+
+# ─── mTLS-Aktivierung ────────────────────────────────────────────────────────
+#
+# 1. Im Setup-Wizard "Zertifikat generieren" → "Automatisch ablegen" klicken.
+#    Dockpilot legt ca.crt selbst ins Traefik-Dynamic-Config-Verzeichnis.
+#
+# 2. Folgendes in die Traefik Dynamic-Config (z.B. tls.yaml) einfügen:
+#
+#    tls:
+#      options:
+#        mtls:
+#          clientAuth:
+#            caFiles:
+#              - /path/to/dynamic/dockpilot-ca.crt
+#            clientAuthType: RequireAndVerifyClientCert
+#
+# 3. Die auskommentierte tls.options-Zeile oben einkommentieren.
+# 4. docker compose up -d

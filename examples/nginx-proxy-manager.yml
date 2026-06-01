@@ -1,0 +1,50 @@
+# dockpilot – Nginx Proxy Manager Integration
+#
+# NPM übernimmt HTTPS und Reverse-Proxy. Dockpilot lauscht intern nur auf
+# Port 8080 und ist von außen NICHT direkt erreichbar.
+#
+# Voraussetzung: NPM und dockpilot im selben Docker-Netzwerk.
+
+services:
+  dockpilot:
+    image: ghcr.io/linuxxunil1/dockpilot:latest
+    container_name: dockpilot
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - DASH_USER=admin
+      - DASH_PASSWORD=changeme       # ← Sicheres Passwort setzen!
+      - DASH_SECRET=changeme         # ← openssl rand -hex 32
+      - STACKS_DIR=/opt/dockpilot/stacks
+    networks:
+      - npm_network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/dockpilot/stacks:/opt/dockpilot/stacks
+      - /opt/dockpilot/data:/data
+    # Kein ports-Block – NPM routet intern
+
+volumes: {}
+
+networks:
+  npm_network:
+    external: true
+    name: npm_network   # ← Name des NPM-Netzwerks anpassen
+
+# ─── NPM-Konfiguration ───────────────────────────────────────────────────────
+#
+# In NPM unter "Proxy Hosts" → "Add Proxy Host":
+#
+#   Domain Names:    dockpilot.example.com
+#   Scheme:          http
+#   Forward Hostname: dockpilot        (= Container-Name)
+#   Forward Port:    8080
+#   Cache Assets:    off
+#   Block Exploits:  on
+#   Websockets:      off
+#
+# SSL-Tab:
+#   SSL Certificate: Let's Encrypt (oder eigenes)
+#   Force SSL:       on
+#   HTTP/2 Support:  on

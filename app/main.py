@@ -44,11 +44,7 @@ def _load_creds() -> tuple[str, str, bytes]:
     )
 
 def needs_setup() -> bool:
-    if os.path.isfile(CREDS_FILE):
-        return False
-    pw  = os.environ.get("DASH_PASSWORD", "changeme")
-    sec = os.environ.get("DASH_SECRET",   "changeme")
-    return pw in ("changeme", "") or sec in ("changeme", "insecure-default-secret", "")
+    return not os.path.isfile(CREDS_FILE)
 
 client = docker.DockerClient(base_url="unix://var/run/docker.sock")
 app = FastAPI()
@@ -415,6 +411,66 @@ def setup_download(filename: str):
                        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
+def _data_host_path() -> str:
+    """Findet den Host-Pfad des /data-Volumes durch Inspektion des eigenen Containers."""
+    try:
+        me = client.containers.get("dockpilot")
+        for m in me.attrs.get("Mounts", []):
+            if m.get("Destination") == "/data":
+                return m["Source"]
+    except Exception:
+        pass
+    return DATA_DIR
+
+
+@app.get("/api/setup/detect-proxy")
+def setup_detect_proxy():
+    result = {"traefik": None, "nginx_proxy_manager": None}
+    try:
+        for c in client.containers.list():
+            image = c.attrs["Config"]["Image"].lower()
+            name  = c.name.lower()
+            if "traefik" in image or name == "traefik":
+                dynamic_path = None
+                for m in c.attrs.get("Mounts", []):
+                    dest = m.get("Destination", "")
+                    src  = m.get("Source", "")
+                    if "dynamic" in dest.lower() or "dynamic" in src.lower():
+                        dynamic_path = src
+                        break
+                result["traefik"] = {"container": c.name, "dynamic_path": dynamic_path}
+            elif "nginx-proxy-manager" in image or "jc21/nginx" in image:
+                result["nginx_proxy_manager"] = {"container": c.name}
+    except Exception:
+        pass
+    return JSONResponse(result)
+
+
+@app.post("/api/setup/place-ca-cert")
+async def setup_place_ca_cert(request: Request):
+    ca_path = os.path.join(CERTS_DIR, "ca.crt")
+    if not os.path.isfile(ca_path):
+        raise HTTPException(status_code=400, detail="Zertifikat noch nicht generiert")
+    body = await request.json()
+    target = body.get("path", "").strip()
+    if not target or ".." in target:
+        raise HTTPException(status_code=400, detail="Ungültiger Zielpfad")
+    certs_host = os.path.join(_data_host_path(), "certs")
+    try:
+        client.containers.run(
+            "alpine:latest",
+            command=["cp", "/src/ca.crt", "/dst/dockpilot-ca.crt"],
+            volumes={
+                certs_host: {"bind": "/src", "mode": "ro"},
+                target:     {"bind": "/dst", "mode": "rw"},
+            },
+            remove=True,
+        )
+        return {"ok": True, "placed_at": os.path.join(target, "dockpilot-ca.crt")}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/login", response_class=HTMLResponse)
 def login_page(error: str = ""):
     if needs_setup():
@@ -665,11 +721,28 @@ input:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgba(59,130,2
       <a href="/api/setup/download/client.p12" download class="green">↓ client.p12</a>
       <a href="/api/setup/download/ca.crt" download>↓ ca.crt</a>
     </div>
+
+    <!-- Auto-Deploy -->
+    <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid #182a45">
+      <div style="font-size:.78rem;color:#4a6a8a;margin-bottom:.6rem">ca.crt automatisch ablegen:</div>
+      <div id="proxy-status" style="font-size:.82rem;color:#3a5a7a">
+        <span id="proxy-scanning">⟳ Erkenne Proxy…</span>
+      </div>
+      <div id="proxy-actions" style="margin-top:.6rem;display:none">
+        <div id="traefik-action"></div>
+        <div id="npm-action"></div>
+        <div id="no-proxy-msg" style="display:none;font-size:.78rem;color:#3a5a7a">
+          Kein bekannter Proxy erkannt — ca.crt bitte manuell ablegen.
+        </div>
+      </div>
+      <div id="place-result" style="margin-top:.6rem;font-size:.8rem;display:none"></div>
+    </div>
+
     <div class="note">
-      <strong style="color:#dce8f8">Nächste Schritte:</strong><br>
-      1. <code>client.p12</code> im Browser/Betriebssystem importieren<br>
-      2. <code>ca.crt</code> in das Traefik-Dynamic-Config-Verzeichnis kopieren<br>
-      3. mTLS in <code>docker-compose.yaml</code> aktivieren (auskommentierte Zeile einkommentieren)
+      <strong style="color:#dce8f8">Manuelle Schritte nach dem Ablegen:</strong><br>
+      1. <code>client.p12</code> im Browser/OS importieren<br>
+      2. mTLS-Block in Traefik Dynamic-Config eintragen (siehe <code>examples/traefik.yml</code>)<br>
+      3. <code>tls.options</code>-Label in <code>docker-compose.yaml</code> einkommentieren
     </div>
   </div>
   <button class="btn" id="finish-btn" onclick="finishSetup()" style="margin-top:.85rem" disabled>Abschließen →</button>
@@ -717,7 +790,51 @@ async function generateCert(){
     document.getElementById('cert-result').style.display='';
     document.getElementById('finish-btn').disabled=false;
     btn.style.display='none';
+    detectProxy();
   }else{btn.disabled=false;btn.textContent='Erneut versuchen'}
+}
+async function detectProxy(){
+  const scanning=document.getElementById('proxy-scanning');
+  const actions=document.getElementById('proxy-actions');
+  const traefikEl=document.getElementById('traefik-action');
+  const npmEl=document.getElementById('npm-action');
+  const noProxyEl=document.getElementById('no-proxy-msg');
+  scanning.style.display='';
+  const r=await fetch('/api/setup/detect-proxy');
+  if(!r.ok){scanning.textContent='Proxy-Erkennung fehlgeschlagen';return}
+  const j=await r.json();
+  scanning.style.display='none';
+  actions.style.display='';
+  let found=false;
+  if(j.traefik){
+    found=true;
+    const name=j.traefik.container;
+    const path=j.traefik.dynamic_path;
+    const actionBtn=path
+      ?`<button onclick="placeCaCert('${path.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')" style="padding:.28rem .65rem;border-radius:6px;border:0;background:linear-gradient(135deg,#1d4ed8,#3b82f6);color:#fff;font-size:.75rem;cursor:pointer;font-weight:600">Automatisch ablegen</button>`
+      :`<span style="font-size:.72rem;color:#f87171">Kein dynamic-Pfad gefunden</span>`;
+    traefikEl.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.35rem"><span style="font-size:.78rem;color:#60a5fa">Traefik: ${name}</span>${actionBtn}</div>`;
+  }
+  if(j.nginx_proxy_manager){
+    found=true;
+    npmEl.innerHTML=`<div style="font-size:.78rem;color:#4a6a8a;padding:.25rem 0">NPM erkannt (${j.nginx_proxy_manager.container}) — ca.crt manuell im NPM-Interface importieren</div>`;
+  }
+  if(!found){noProxyEl.style.display='';}
+}
+async function placeCaCert(path){
+  const result=document.getElementById('place-result');
+  result.style.display='';result.style.color='#4a6a8a';result.textContent='⟳ Ablegen…';
+  const r=await fetch('/api/setup/place-ca-cert',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});
+  if(r.ok){
+    const j=await r.json();
+    result.style.color='#4ade80';
+    result.textContent='✓ Abgelegt: '+j.placed_at;
+  }else{
+    const j=await r.json().catch(()=>({}));
+    result.style.color='#f87171';
+    result.textContent='Fehler: '+(j.detail||'Unbekannt');
+  }
 }
 function finishSetup(){setStep(3)}
 </script></body></html>"""
