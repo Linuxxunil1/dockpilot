@@ -1,0 +1,8 @@
+# Geheimnisse – niemals committen
+.env
+certs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo

@@ -1,0 +1,37 @@
+services:
+  dockpilot:
+    build: ./app
+    image: dockpilot:local
+    container_name: dockpilot
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - DASH_USER=${DASH_USER}
+      - DASH_PASSWORD=${DASH_PASSWORD}
+      - DASH_SECRET=${DASH_SECRET}
+    networks:
+      - proxy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    labels:
+      - "traefik.enable=true"
+
+      # Router
+      - "traefik.http.routers.dockpilot.rule=Host(`dockpilot.linus-hub.de`)"
+      - "traefik.http.routers.dockpilot.entrypoints=websecure"
+      - "traefik.http.routers.dockpilot.tls=true"
+      - "traefik.http.routers.dockpilot.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.dockpilot.service=dockpilot"
+      - "traefik.http.services.dockpilot.loadbalancer.server.port=8080"
+
+      # --- Optionale mTLS-Client-Zertifikatsauth ---
+      # Erst aktivieren NACHDEM client.p12 im Browser importiert wurde (siehe README.md):
+      # - "traefik.http.routers.dockpilot.tls.options=mtls@file"
+
+volumes: {}
+
+networks:
+  proxy:
+    external: true
+    name: proxy
