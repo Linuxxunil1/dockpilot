@@ -1,0 +1,31 @@
+# ============================================================
+# Optionale mTLS-Client-Zertifikatsauth fuer dockpilot
+# ============================================================
+# Diesen "mtls"-Block in die Traefik-Datei
+#   /root/docker-compose/traefik/dynamic/tls.yaml
+# unter tls.options EINFUEGEN (NICHT "default" ersetzen, sonst
+# verlangen ALLE Seiten ploetzlich ein Client-Zertifikat!).
+#
+# Ergebnis-Datei sieht dann z.B. so aus:
+#
+# tls:
+#   options:
+#     default:
+#       minVersion: VersionTLS12
+#     mtls:
+#       minVersion: VersionTLS12
+#       clientAuth:
+#         caFiles:
+#           - /dynamic/dockpilot-ca.crt
+#         clientAuthType: RequireAndVerifyClientCert
+#
+# Die CA liegt bereits unter:
+#   /root/docker-compose/traefik/dynamic/dockpilot-ca.crt
+# (= /dynamic/dockpilot-ca.crt im Traefik-Container)
+
+    mtls:
+      minVersion: VersionTLS12
+      clientAuth:
+        caFiles:
+          - /dynamic/dockpilot-ca.crt
+        clientAuthType: RequireAndVerifyClientCert

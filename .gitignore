@@ -1,0 +1,9 @@
+# Geheimnisse und umgebungsspezifische Konfiguration – niemals committen
+.env
+certs/
+docker-compose.yaml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
