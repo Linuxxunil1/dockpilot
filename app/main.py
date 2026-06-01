@@ -430,14 +430,35 @@ def setup_detect_proxy():
         for c in client.containers.list():
             image = c.attrs["Config"]["Image"].lower()
             name  = c.name.lower()
-            if "traefik" in image or name == "traefik":
-                dynamic_path = None
-                for m in c.attrs.get("Mounts", []):
-                    dest = m.get("Destination", "")
-                    src  = m.get("Source", "")
-                    if "dynamic" in dest.lower() or "dynamic" in src.lower():
-                        dynamic_path = src
+            # Match actual Traefik proxy: image basename starts with "traefik" (excludes traefik/whoami etc.)
+            img_base = image.split("/")[-1] if "/" in image else image
+            is_traefik = name == "traefik" or img_base.startswith("traefik")
+            if is_traefik:
+                # Find dynamic config dir from --providers.file.filename or --providers.file.directory arg
+                file_dir = None
+                for arg in c.attrs.get("Args", []):
+                    if arg.startswith("--providers.file.filename="):
+                        file_dir = os.path.dirname(arg.split("=", 1)[1])
                         break
+                    elif arg.startswith("--providers.file.directory="):
+                        file_dir = arg.split("=", 1)[1]
+                        break
+                # Map container path → host path via mounts
+                dynamic_path = None
+                mounts = c.attrs.get("Mounts", [])
+                if file_dir:
+                    for m in mounts:
+                        dest = m.get("Destination", "").rstrip("/")
+                        if file_dir.startswith(dest + "/") or file_dir == dest:
+                            rel = file_dir[len(dest):].lstrip("/")
+                            dynamic_path = os.path.join(m["Source"], rel) if rel else m["Source"]
+                            break
+                # Fallback: search mounts for "dynamic" in path
+                if not dynamic_path:
+                    for m in mounts:
+                        if "dynamic" in m.get("Destination","").lower() or "dynamic" in m.get("Source","").lower():
+                            dynamic_path = m["Source"]
+                            break
                 result["traefik"] = {"container": c.name, "dynamic_path": dynamic_path}
             elif "nginx-proxy-manager" in image or "jc21/nginx" in image:
                 result["nginx_proxy_manager"] = {"container": c.name}
