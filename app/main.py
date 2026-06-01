@@ -962,7 +962,7 @@ main{padding:1.5rem 1.75rem;max-width:1300px;margin:0 auto}
 
 #container-grid{display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-start}
 .group-section{background:linear-gradient(150deg,#070e1b,#060b16);border:1px solid #182a45;
-  border-radius:14px;padding:1rem 1.1rem}
+  border-radius:14px;padding:1rem 1.1rem;width:fit-content}
 .group-section.stack-dragging{opacity:.35;transform:scale(.98)}
 .group-section.stack-drag-over{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.2)}
 .group-hdr{font-size:.72rem;text-transform:uppercase;letter-spacing:.09em;color:#8eafd4;
