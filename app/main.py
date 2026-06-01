@@ -963,8 +963,8 @@ main{padding:1.5rem 1.75rem;max-width:1300px;margin:0 auto}
 .group-section{margin-bottom:1.75rem}
 .group-hdr{background:linear-gradient(150deg,#0d1929,#0b1623);border:1px solid #182a45;
   border-radius:10px;padding:.55rem 1rem;font-size:.72rem;text-transform:uppercase;
-  letter-spacing:.09em;color:#8eafd4;font-weight:700;margin-bottom:.75rem;
-  display:flex;align-items:center;gap:.5rem;min-width:0}
+  letter-spacing:.09em;color:#8eafd4;font-weight:700;
+  display:flex;align-items:center;gap:.5rem;min-width:0;grid-column:1/-1}
 .ccard-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,260px));gap:.75rem}
 .ccard{background:linear-gradient(150deg,#0d1929,#0b1623);border:1px solid #182a45;
   border-radius:13px;padding:.95rem 1rem;cursor:grab;
@@ -1211,19 +1211,21 @@ function render(list){
       if(ia<0&&ib<0)return 0;if(ia<0)return 1;if(ib<0)return -1;return ia-ib;
     });
     return `<div class="group-section">
-      <div class="group-hdr"><span class="dot ${dot}"></span><span>${label}</span><span style="margin-left:auto;font-size:.68rem;color:#4a6a8a;font-weight:400;text-transform:none;letter-spacing:0">${run}/${total} aktiv</span></div>
-      <div class="ccard-grid" data-group="${g}">${sorted.map(renderCard).join('')}</div></div>`;
+      <div class="ccard-grid" data-group="${g}"><div class="group-hdr"><span class="dot ${dot}"></span><span>${label}</span><span style="margin-left:auto;font-size:.68rem;color:#4a6a8a;font-weight:400;text-transform:none;letter-spacing:0">${run}/${total} aktiv</span></div>${sorted.map(renderCard).join('')}</div></div>`;
   }).join('');
   initDrag();
-  [...grid.querySelectorAll('.group-section')].forEach(sec=>{
-    const cg=sec.querySelector('.ccard-grid');
-    const hdr=sec.querySelector('.group-hdr');
-    const cards=[...cg.querySelectorAll('.ccard')];
-    if(!cards.length)return;
-    const gw=cg.offsetWidth,cw=cards[0].offsetWidth,gap=12;
-    const perRow=Math.max(1,Math.floor((gw+gap)/(cw+gap)));
-    const n=Math.min(cards.length,perRow);
-    hdr.style.width=(n*cw+(n-1)*gap)+'px';
+  requestAnimationFrame(()=>{
+    [...grid.querySelectorAll('.group-section')].forEach(sec=>{
+      const cg=sec.querySelector('.ccard-grid');
+      const hdr=sec.querySelector('.group-hdr');
+      const cards=[...cg.querySelectorAll('.ccard')];
+      if(!cards.length)return;
+      const gap=parseFloat(getComputedStyle(cg).columnGap)||12;
+      const cw=cards[0].getBoundingClientRect().width;
+      const perRow=Math.max(1,Math.floor((cg.getBoundingClientRect().width+gap)/(cw+gap)));
+      const n=Math.min(cards.length,perRow);
+      hdr.style.gridColumn='1 / span '+n;
+    });
   });
 }
 async function load(){try{const r=await fetch('/api/containers');
