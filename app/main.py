@@ -1176,7 +1176,7 @@ function initDrag(){
 function initStackDrag(){
   document.querySelectorAll('.group-section').forEach(sec=>{
     sec.addEventListener('dragstart',function(e){
-      if(!e.target.closest('.group-hdr'))return;
+      if(e.target.closest('.ccard'))return;
       dragStack=this;e.dataTransfer.effectAllowed='move';
       e.dataTransfer.setData('text/plain','stack');
       setTimeout(()=>this.classList.add('stack-dragging'),0);
