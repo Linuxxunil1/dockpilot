@@ -739,9 +739,10 @@ input:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgba(59,130,2
     <div style="font-size:.78rem;color:#4a6a8a;margin-bottom:.3rem">Zertifikat erstellt — alles herunterladen:</div>
     <div>P12-Passwort: <span class="pw" id="p12-pw"></span></div>
     <div class="dl">
-      <a href="/api/setup/download/client.p12" download class="green">↓ client.p12</a>
+      <a href="/api/setup/download/client.p12" download class="green" id="dl-p12" onclick="markDownloaded()">↓ client.p12</a>
       <a href="/api/setup/download/ca.crt" download>↓ ca.crt</a>
     </div>
+    <div id="dl-hint" style="font-size:.75rem;color:#f59e0b;margin-top:.5rem">⬆ client.p12 herunterladen um fortzufahren</div>
 
     <!-- Auto-Deploy -->
     <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid #182a45">
@@ -812,7 +813,6 @@ async function generateCert(){
       const j=await r.json();
       document.getElementById('p12-pw').textContent=j.p12_password;
       document.getElementById('cert-result').style.display='';
-      document.getElementById('finish-btn').disabled=false;
       btn.style.display='none';
       detectProxy();
     }else{btn.disabled=false;btn.textContent='Erneut versuchen'}
@@ -871,6 +871,10 @@ async function placeCaCert(path){
     result.style.color='#f87171';
     result.textContent='Fehler: '+(j.detail||'Unbekannt');
   }
+}
+function markDownloaded(){
+  document.getElementById('finish-btn').disabled=false;
+  document.getElementById('dl-hint').style.display='none';
 }
 function finishSetup(){setStep(3)}
 </script></body></html>"""
