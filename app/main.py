@@ -1258,9 +1258,10 @@ function render(list){
       <div class="group-hdr"><span class="dot ${dot}"></span><span>${label}</span><span style="margin-left:auto;font-size:.68rem;color:#4a6a8a;font-weight:400;text-transform:none;letter-spacing:0">${run}/${total} aktiv</span></div>
       <div class="ccard-grid" data-group="${g}">${sorted.map(renderCard).join('')}</div></div>`;
   }).join('');
-  const CARD_W=240,GAP=12;
-  const mainW=(document.querySelector('main')||document.body).clientWidth-35;
-  const maxCols=Math.max(1,Math.floor((mainW+GAP)/(CARD_W+GAP)));
+  const CARD_W=230,GAP=12,PAD=35;
+  const mainEl=document.querySelector('main');
+  const halfW=Math.floor((mainEl?mainEl.clientWidth:900)/2)-PAD;
+  const maxCols=Math.max(1,Math.floor((halfW+GAP)/(CARD_W+GAP)));
   [...grid.querySelectorAll('.group-section')].forEach(sec=>{
     const cg=sec.querySelector('.ccard-grid');
     const n=Math.min(cg.querySelectorAll('.ccard').length,maxCols);
