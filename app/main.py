@@ -1005,32 +1005,33 @@ main{padding:1.5rem 1.75rem;max-width:1300px;margin:0 auto}
 .spin{animation:sp 1s linear infinite;display:inline-block}
 @keyframes sp{to{transform:rotate(360deg)}}
 
-.stacks-layout{display:flex;gap:1.25rem;align-items:flex-start}
-.stack-sidebar{width:210px;flex-shrink:0}
-.shd{font-size:.67rem;text-transform:uppercase;letter-spacing:.08em;color:#3a5a7a;
-  font-weight:700;margin:0 0 .65rem;padding:0 .25rem}
-.stack-item{padding:.55rem .85rem;border-radius:9px;cursor:pointer;font-size:.875rem;
-  color:#6a8aaa;border:1px solid transparent;margin-bottom:.3rem;transition:all .15s}
-.stack-item:hover{background:#0d1929;border-color:#182a45;color:#dce8f8}
-.stack-item.active{background:linear-gradient(135deg,#0d1f38,#0f2240);
-  border-color:#1e3c6e;color:#dce8f8}
-.stack-main{flex:1;min-width:0}
+.scard-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.75rem;margin-bottom:1.25rem}
+.scard{background:linear-gradient(150deg,#0d1929,#0b1623);border:1px solid #182a45;
+  border-radius:13px;padding:1rem;cursor:pointer;
+  transition:border-color .2s,transform .15s,box-shadow .15s}
+.scard:hover{border-color:#2a4060;transform:translateY(-1px)}
+.scard.active{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.12)}
+.scard-new{border:1px dashed #182a45;color:#3a5a7a;display:flex;align-items:center;
+  justify-content:center;gap:.5rem;font-size:.875rem;font-weight:500;min-height:90px}
+.scard-new:hover{color:#8eafd4;border-color:#2a4060}
+.scard-name{font-weight:600;color:#e8f2ff;font-size:.95rem;margin-bottom:.35rem;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scard-meta{font-size:.72rem;color:#4a6a8a;display:flex;align-items:center;gap:.4rem;margin-bottom:.7rem}
+.scard-acts{display:flex;gap:.35rem;flex-wrap:wrap}
+.partial{background:#f59e0b}
+.stack-editor-panel{background:linear-gradient(150deg,#0d1929,#0b1623);border:1px solid #3b82f6;
+  border-radius:13px;padding:1.1rem;margin-top:.25rem}
 .stack-toolbar{display:flex;gap:.4rem;align-items:center;margin-bottom:.8rem;flex-wrap:wrap}
 .stack-toolbar strong{flex:1;font-size:.95rem;color:#f0f6ff;font-weight:600}
-.b-new{background:linear-gradient(135deg,#1e3a8a,#3b82f6);border:0;border-radius:9px;
-  padding:.55rem 1rem;cursor:pointer;font-size:.84rem;color:#fff;font-weight:500;
-  width:100%;margin-bottom:.85rem;transition:filter .15s}
-.b-new:hover{filter:brightness(1.12)}
-textarea.editor{width:100%;height:56vh;
+textarea.editor{width:100%;height:52vh;
   font-family:'JetBrains Mono','Fira Code',ui-monospace,'Courier New',monospace;
   font-size:.81rem;background:#04080f;color:#c8dff5;border:1px solid #182a45;
   border-radius:11px;padding:.95rem 1.1rem;resize:vertical;line-height:1.7;
   transition:border-color .2s,box-shadow .2s}
-textarea.editor:focus{outline:none;border-color:#2a5aad;
-  box-shadow:0 0 0 3px rgba(59,130,246,.07)}
+textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgba(59,130,246,.07)}
 .output-box{margin-top:.8rem;background:#04080f;border:1px solid #182a45;border-radius:11px;
   padding:.9rem 1.1rem;font-family:'JetBrains Mono','Fira Code',ui-monospace,monospace;
-  font-size:.77rem;color:#6a8aaa;white-space:pre-wrap;max-height:260px;overflow-y:auto;line-height:1.65}
+  font-size:.77rem;color:#6a8aaa;white-space:pre-wrap;max-height:220px;overflow-y:auto;line-height:1.65}
 .empty-state{color:#1e3a55;font-size:.875rem;padding:3rem 0;text-align:center}
 </style></head><body>
 <header>
@@ -1052,28 +1053,20 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;
 </div>
 
 <div id="view-stacks" style="display:none">
-  <div class="stacks-layout">
-    <div class="stack-sidebar">
-      <button class="b-new" onclick="newStack()">+ Neuer Stack</button>
-      <div class="shd">Stacks</div>
-      <div id="stack-list"><div class="empty-state">lädt…</div></div>
+  <div id="scard-grid" class="scard-grid"><div class="empty-state">lädt…</div></div>
+  <div class="stack-editor-panel" id="stack-editor" style="display:none">
+    <div class="stack-toolbar">
+      <strong id="editor-title"></strong>
+      <button class="tbtn b-deploy" onclick="stackAction('up')">▶ Deploy</button>
+      <button class="tbtn b-pull" onclick="stackAction('pull')">⬇ Pull</button>
+      <button class="tbtn b-logs" onclick="stackAction('logs')">≡ Logs</button>
+      <button class="tbtn b-down" onclick="stackAction('down')">■ Down</button>
+      <button class="tbtn b-save" onclick="saveStack()">↑ Speichern</button>
+      <button class="tbtn b-del" onclick="deleteStack()">✕ Löschen</button>
+      <button class="tbtn" style="background:#0e1e35;color:#4a6a8a;border:1px solid #182a45" onclick="closeEditor()">✕</button>
     </div>
-    <div class="stack-main" id="stack-editor" style="display:none">
-      <div class="stack-toolbar">
-        <strong id="editor-title"></strong>
-        <button class="tbtn b-deploy" onclick="stackAction('up')">▶ Deploy</button>
-        <button class="tbtn b-pull" onclick="stackAction('pull')">⬇ Pull</button>
-        <button class="tbtn b-logs" onclick="stackAction('logs')">≡ Logs</button>
-        <button class="tbtn b-down" onclick="stackAction('down')">■ Down</button>
-        <button class="tbtn b-save" onclick="saveStack()">↑ Speichern</button>
-        <button class="tbtn b-del" onclick="deleteStack()">✕ Löschen</button>
-      </div>
-      <textarea class="editor" id="compose-editor" spellcheck="false"></textarea>
-      <div class="output-box" id="stack-output" style="display:none"></div>
-    </div>
-    <div class="stack-main" id="stack-empty" style="display:none">
-      <div class="empty-state" style="padding:5rem 0">← Stack auswählen oder neu anlegen</div>
-    </div>
+    <textarea class="editor" id="compose-editor" spellcheck="false"></textarea>
+    <div class="output-box" id="stack-output" style="display:none"></div>
   </div>
 </div>
 
@@ -1239,30 +1232,56 @@ networks:
     name: proxy
 `;
 async function loadStacks(){
-  try{const r=await fetch('/api/stacks');
+  try{
+    const r=await fetch('/api/stacks');
     if(r.status===401){location.href='/login';return}
     const stacks=await r.json();
-    const list=document.getElementById('stack-list');
-    if(!stacks.length){list.innerHTML='<div class="empty-state">Noch keine Stacks</div>';
-      if(!currentStack)showStackEmpty();return;}
-    list.innerHTML=stacks.map(s=>`<div class="stack-item${currentStack===s.name?' active':''}" onclick="openStack('${s.name}')">${s.name}</div>`).join('');
-    if(!currentStack)showStackEmpty();
+    const grid=document.getElementById('scard-grid');
+    let html='';
+    stacks.forEach(s=>{
+      const ctrs=last.filter(c=>c.compose===s.name);
+      const total=ctrs.length,run=ctrs.filter(c=>c.running).length;
+      const dot=total===0?'down':run===total?'up':run>0?'partial':'down';
+      const meta=total===0?'keine Container':`${run}/${total} laufen`;
+      html+=`<div class="scard${currentStack===s.name?' active':''}" onclick="openStack('${s.name}')">
+        <div class="scard-name">${s.name}</div>
+        <div class="scard-meta"><span class="dot ${dot}"></span><span>${meta}</span></div>
+        <div class="scard-acts">
+          <button class="tbtn b-deploy" title="Deploy" onclick="event.stopPropagation();quickAction('${s.name}','up')">▶</button>
+          <button class="tbtn b-down"   title="Down"   onclick="event.stopPropagation();quickAction('${s.name}','down')">■</button>
+          <button class="tbtn b-pull"   title="Pull"   onclick="event.stopPropagation();quickAction('${s.name}','pull')">⬇</button>
+          <button class="tbtn b-logs"   title="Logs"   onclick="event.stopPropagation();quickAction('${s.name}','logs')">≡</button>
+        </div>
+      </div>`;
+    });
+    html+=`<div class="scard scard-new" onclick="newStack()"><span style="font-size:1.3rem;line-height:1">+</span> Neuer Stack</div>`;
+    grid.innerHTML=html;
   }catch(e){}
 }
-function showStackEmpty(){
+async function quickAction(name,action){
+  const prev=currentStack;currentStack=name;
+  document.getElementById('stack-editor').style.display='';
+  document.getElementById('editor-title').textContent=name;
+  document.getElementById('stack-output').style.display='';
+  document.getElementById('stack-output').textContent='⟳ Läuft…';
+  await stackAction(action);
+  currentStack=prev||name;
+}
+function closeEditor(){
   document.getElementById('stack-editor').style.display='none';
-  document.getElementById('stack-empty').style.display='';
+  currentStack=null;loadStacks();
 }
 async function openStack(name){
   currentStack=name;
-  try{const r=await fetch(`/api/stacks/${name}/file`);
+  try{
+    const r=await fetch(`/api/stacks/${name}/file`);
     if(!r.ok)throw 0;
     const {content}=await r.json();
     document.getElementById('compose-editor').value=content;
     document.getElementById('editor-title').textContent=name;
     document.getElementById('stack-editor').style.display='';
-    document.getElementById('stack-empty').style.display='none';
     document.getElementById('stack-output').style.display='none';
+    document.getElementById('stack-editor').scrollIntoView({behavior:'smooth',block:'nearest'});
     loadStacks();
   }catch(e){toast('Fehler beim Laden',true)}
 }
@@ -1284,7 +1303,7 @@ async function stackAction(action){
     r.ok?(showOutput(j.out||'OK'),toast(action+' abgeschlossen'))
        :(showOutput(j.detail||'Fehler'),toast('Fehler: '+(j.detail||r.status),true));
   }catch(e){showOutput('Fehler: '+e);toast('Fehler',true)}
-  stackBusy=false;setStackBtns(false);
+  stackBusy=false;setStackBtns(false);load();
 }
 function setStackBtns(d){document.querySelectorAll('.stack-toolbar button').forEach(b=>b.disabled=d)}
 function showOutput(t){const el=document.getElementById('stack-output');
@@ -1292,10 +1311,8 @@ function showOutput(t){const el=document.getElementById('stack-output');
 async function deleteStack(){
   if(!confirm(`Stack "${currentStack}" löschen?\\n(Container werden NICHT gestoppt)`))return;
   const r=await fetch(`/api/stacks/${currentStack}`,{method:'DELETE'});
-  if(r.ok){toast(currentStack+' gelöscht');currentStack=null;
-    document.getElementById('stack-editor').style.display='none';
-    document.getElementById('stack-empty').style.display='';loadStacks();
-  }else toast('Fehler beim Löschen',true);
+  if(r.ok){toast(currentStack+' gelöscht');closeEditor();}
+  else toast('Fehler beim Löschen',true);
 }
 function newStack(){
   const name=prompt('Stack-Name\\n(Buchstaben, Ziffern, - und _):');
@@ -1304,8 +1321,8 @@ function newStack(){
   document.getElementById('compose-editor').value=TMPL;
   document.getElementById('editor-title').textContent=name+' (neu)';
   document.getElementById('stack-editor').style.display='';
-  document.getElementById('stack-empty').style.display='none';
   document.getElementById('stack-output').style.display='none';
+  document.getElementById('stack-editor').scrollIntoView({behavior:'smooth',block:'nearest'});
   loadStacks();toast('Anpassen und dann Speichern');
 }
 </script></body></html>"""
