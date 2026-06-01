@@ -948,43 +948,43 @@ main{padding:1.5rem 1.75rem;max-width:1300px;margin:0 auto}
 .dk span:first-child{color:#6a8aaa}
 .dk span:last-child{color:#3a5a7a}
 
-.tbl-wrap{background:linear-gradient(150deg,#0d1929,#0b1623);border:1px solid #182a45;
-  border-radius:13px;overflow:hidden}
-table{width:100%;border-collapse:collapse}
-th{padding:.65rem 1.1rem;text-align:left;font-size:.67rem;color:#3a5a7a;font-weight:700;
-  text-transform:uppercase;letter-spacing:.08em;background:#060c18;border-bottom:1px solid #182a45}
-td{padding:.6rem 1.1rem;font-size:.84rem;border-bottom:1px solid #0d1929;vertical-align:middle}
-tr:last-child td{border-bottom:0}
-tbody tr{transition:background .12s}
-tbody tr:hover{background:rgba(20,45,80,.3)}
-
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:.45rem;
-  vertical-align:middle;flex-shrink:0}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0}
 .up{background:#22c55e;box-shadow:0 0 0 2px rgba(34,197,94,.2);animation:glow 2.5s ease-in-out infinite}
 .down{background:#1e3a55}
 @keyframes glow{0%,100%{box-shadow:0 0 0 2px rgba(34,197,94,.2)}
   50%{box-shadow:0 0 0 5px rgba(34,197,94,.06)}}
-.stxt{font-size:.78rem;vertical-align:middle}
-.stxt.on{color:#4ade80}.stxt.off{color:#3a5a7a}
-
-.name{font-weight:600;color:#e8f2ff}
-.img{color:#3a5a7a;font-size:.74rem;margin-top:.15rem}
-.bar{background:#060c18;border-radius:3px;height:5px;width:68px;overflow:hidden;
-  display:inline-block;vertical-align:middle;margin-right:.35rem}
-.bar>i{display:block;height:100%;border-radius:3px;
-  background:linear-gradient(90deg,#1d4ed8,#60a5fa)}
-.mem>i{background:linear-gradient(90deg,#6d28d9,#c084fc)}
-.pct{font-size:.76rem;color:#3a5a7a;vertical-align:middle}
-.tag{font-size:.63rem;background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.15);
-  padding:.1rem .45rem;border-radius:4px;color:#4a90d9;margin-left:.3rem;vertical-align:middle}
+.stxt{font-size:.78rem}.stxt.on{color:#4ade80}.stxt.off{color:#3a5a7a}
 .muted{color:#1e3a55}
 
-.act{display:flex;gap:.3rem;flex-wrap:wrap;align-items:center}
-.act button,.tbtn{border:0;border-radius:7px;padding:.35rem .65rem;cursor:pointer;
-  font-size:.75rem;color:#fff;font-weight:500;transition:filter .15s,transform .1s;letter-spacing:.01em}
-.act button:hover,.tbtn:hover{filter:brightness(1.2)}
-.act button:active,.tbtn:active{transform:scale(.94)}
-.act button:disabled,.tbtn:disabled{opacity:.25;cursor:not-allowed;filter:none;transform:none}
+.group-section{margin-bottom:1.75rem}
+.group-hdr{font-size:.67rem;text-transform:uppercase;letter-spacing:.1em;color:#3a5a7a;
+  font-weight:700;margin-bottom:.75rem;display:flex;align-items:center;gap:.6rem}
+.group-hdr::after{content:'';flex:1;height:1px;background:#182a45}
+.ccard-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:.75rem}
+.ccard{background:linear-gradient(150deg,#0d1929,#0b1623);border:1px solid #182a45;
+  border-radius:13px;padding:.95rem 1rem;cursor:grab;
+  transition:border-color .2s,transform .15s,box-shadow .15s}
+.ccard:hover{border-color:#2a4060;transform:translateY(-1px)}
+.ccard.dragging{opacity:.3;transform:scale(.96)}
+.ccard.drag-over{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.2)}
+.ccard-name{font-weight:600;color:#e8f2ff;font-size:.88rem;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ccard-img{color:#3a5a7a;font-size:.68rem;margin-top:.1rem;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ccard-stat{display:flex;align-items:center;gap:.35rem;margin:.22rem 0;font-size:.7rem}
+.ccard-stat .sl{color:#3a5a7a;width:28px;flex-shrink:0}
+.sbar{flex:1;background:#060c18;border-radius:3px;height:4px;overflow:hidden}
+.sbar>i{display:block;height:100%;border-radius:3px}
+.sbar.cpu>i{background:linear-gradient(90deg,#1d4ed8,#60a5fa)}
+.sbar.mem>i{background:linear-gradient(90deg,#6d28d9,#c084fc)}
+.ccard-stat .sv{color:#4a6a8a;width:36px;text-align:right;flex-shrink:0}
+.ccard-acts{display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.65rem;padding-top:.65rem;
+  border-top:1px solid #0d1929}
+.ccard-acts button,.tbtn{border:0;border-radius:7px;padding:.32rem .6rem;cursor:pointer;
+  font-size:.73rem;color:#fff;font-weight:500;transition:filter .15s,transform .1s;letter-spacing:.01em}
+.ccard-acts button:hover,.tbtn:hover{filter:brightness(1.2)}
+.ccard-acts button:active,.tbtn:active{transform:scale(.94)}
+.ccard-acts button:disabled,.tbtn:disabled{opacity:.25;cursor:not-allowed;filter:none;transform:none}
 .b-start{background:linear-gradient(135deg,#166534,#22c55e)}
 .b-stop{background:linear-gradient(135deg,#991b1b,#f87171)}
 .b-restart{background:linear-gradient(135deg,#854d0e,#fbbf24)}
@@ -1048,9 +1048,7 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;
 
 <div id="view-containers">
   <section class="cards" id="host"></section>
-  <div class="tbl-wrap"><table><thead><tr>
-    <th>Status</th><th>Container</th><th>CPU</th><th>RAM</th><th>Speicher</th><th>Netz I/O</th><th>Aktionen</th>
-  </tr></thead><tbody id="rows"><tr><td colspan="7" class="muted" style="padding:1.5rem 1.1rem">lädt…</td></tr></tbody></table></div>
+  <div id="container-grid"><div class="muted" style="padding:1.5rem 0">lädt…</div></div>
 </div>
 
 <div id="view-stacks" style="display:none">
@@ -1131,22 +1129,90 @@ async function act(id,action,name){
   }catch(e){toast('Fehler: '+e,true)}
   busy[id]=false;await load();
 }
-function render(list){last=list;const rows=document.getElementById('rows');
-  if(!list.length){rows.innerHTML='<tr><td colspan="7" class="muted" style="padding:1.5rem 1.1rem">keine Container</td></tr>';return}
-  rows.innerHTML=list.map(c=>{const b=busy[c.id];
-    const upd=`<button class="b-update" ${b?'disabled':''} onclick="act('${c.id}','update','${c.name}')">${b?'<span class=spin>⟳</span>':'Update'}</button>`;
-    const acts=c.running
-      ?`<button class="b-stop" ${b?'disabled':''} onclick="act('${c.id}','stop','${c.name}')">Stop</button>
-         <button class="b-restart" ${b?'disabled':''} onclick="act('${c.id}','restart','${c.name}')">Restart</button>${upd}`
-      :`<button class="b-start" ${b?'disabled':''} onclick="act('${c.id}','start','${c.name}')">Start</button>${upd}`;
-    return `<tr>
-      <td><span class="dot ${c.running?'up':'down'}"></span><span class="stxt ${c.running?'on':'off'}">${c.status}</span></td>
-      <td><span class="name">${c.name}</span>${c.compose?`<span class="tag">${c.compose}</span>`:''}<div class="img">${c.image}</div></td>
-      <td>${c.running?bar(c.cpu,''):'<span class=muted>–</span>'}</td>
-      <td>${c.running?bar(c.mem,'mem')+`<div class="img">${fmtBytes(c.mem_used)} / ${fmtBytes(c.mem_limit)}</div>`:'<span class=muted>–</span>'}</td>
-      <td>${sz[c.id]?`${fmtBytes(sz[c.id].rw)}<div class="img">gesamt ${fmtBytes(sz[c.id].rootfs)}</div>`:'<span class=muted style="font-size:.8rem">…</span>'}</td>
-      <td style="font-size:.78rem">${c.running?`<span style="color:#3a5a7a">↓</span> ${fmtBytes(c.net_rx)}<br><span style="color:#3a5a7a">↑</span> ${fmtBytes(c.net_tx)}`:'<span class=muted>–</span>'}</td>
-      <td class="act">${acts}</td></tr>`}).join('');
+function getOrder(){try{return JSON.parse(localStorage.getItem('dp_order'))||{}}catch{return {}}}
+function saveOrder(){
+  const o={};
+  document.querySelectorAll('.ccard-grid').forEach(g=>{
+    o[g.dataset.group]=[...g.querySelectorAll('.ccard')].map(c=>c.dataset.name);
+  });
+  localStorage.setItem('dp_order',JSON.stringify(o));
+}
+let dragSrc=null;
+function initDrag(){
+  document.querySelectorAll('.ccard').forEach(card=>{
+    card.addEventListener('dragstart',function(e){
+      dragSrc=this;e.dataTransfer.effectAllowed='move';
+      e.dataTransfer.setData('text/plain',this.dataset.name);
+      setTimeout(()=>this.classList.add('dragging'),0);
+    });
+    card.addEventListener('dragend',function(){
+      this.classList.remove('dragging');
+      document.querySelectorAll('.ccard').forEach(c=>c.classList.remove('drag-over'));
+    });
+    card.addEventListener('dragover',function(e){
+      e.preventDefault();e.dataTransfer.dropEffect='move';
+      this.classList.add('drag-over');
+    });
+    card.addEventListener('dragleave',function(){this.classList.remove('drag-over')});
+    card.addEventListener('drop',function(e){
+      e.preventDefault();this.classList.remove('drag-over');
+      if(!dragSrc||dragSrc===this)return;
+      const tp=this.closest('.ccard-grid'),sp=dragSrc.closest('.ccard-grid');
+      const all=[...tp.querySelectorAll('.ccard')];
+      const di=all.indexOf(this);
+      const si=all.indexOf(dragSrc);
+      if(sp===tp){if(si<di)tp.insertBefore(dragSrc,this.nextSibling);else tp.insertBefore(dragSrc,this);}
+      else{tp.insertBefore(dragSrc,this);}
+      saveOrder();
+    });
+  });
+}
+function renderCard(c){
+  const b=busy[c.id];const p=v=>v==null?0:Math.min(100,v);
+  const stats=c.running
+    ?`<div class="ccard-stat"><span class="sl">CPU</span><span class="sbar cpu"><i style="width:${p(c.cpu)}%"></i></span><span class="sv">${c.cpu==null?'–':c.cpu+'%'}</span></div>
+      <div class="ccard-stat"><span class="sl">RAM</span><span class="sbar mem"><i style="width:${p(c.mem)}%"></i></span><span class="sv">${c.mem==null?'–':c.mem+'%'}</span></div>`:'';
+  const upd=`<button class="b-update" ${b?'disabled':''} onclick="act('${c.id}','update','${c.name}')">${b?'<span class=spin>⟳</span>':'Update'}</button>`;
+  const acts=c.running
+    ?`<button class="b-stop" ${b?'disabled':''} onclick="act('${c.id}','stop','${c.name}')">Stop</button>
+       <button class="b-restart" ${b?'disabled':''} onclick="act('${c.id}','restart','${c.name}')">Restart</button>${upd}`
+    :`<button class="b-start" ${b?'disabled':''} onclick="act('${c.id}','start','${c.name}')">Start</button>${upd}`;
+  return `<div class="ccard" draggable="true" data-id="${c.id}" data-name="${c.name}">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.4rem;margin-bottom:.5rem">
+      <div style="min-width:0;flex:1">
+        <div style="display:flex;align-items:center;gap:.35rem;margin-bottom:.15rem">
+          <span class="dot ${c.running?'up':'down'}"></span>
+          <span class="ccard-name">${c.name}</span>
+        </div>
+        <div class="ccard-img">${c.image}</div>
+      </div>
+      <span class="stxt ${c.running?'on':'off'}" style="font-size:.68rem;flex-shrink:0;padding-top:.1rem">${c.status}</span>
+    </div>
+    ${stats}
+    <div class="ccard-acts">${acts}</div>
+  </div>`;
+}
+function render(list){
+  last=list;
+  const grid=document.getElementById('container-grid');
+  if(!list.length){grid.innerHTML='<div class="muted" style="padding:1.5rem 0">keine Container</div>';return}
+  const order=getOrder();
+  const groups={};
+  list.forEach(c=>{const g=c.compose||'__solo__';if(!groups[g])groups[g]=[];groups[g].push(c);});
+  const keys=Object.keys(groups).sort((a,b)=>{
+    if(a==='__solo__')return 1;if(b==='__solo__')return -1;return a.localeCompare(b);
+  });
+  grid.innerHTML=keys.map(g=>{
+    const label=g==='__solo__'?'Einzeln':g;
+    const saved=order[g]||[];
+    const sorted=[...groups[g]].sort((a,b)=>{
+      const ia=saved.indexOf(a.name),ib=saved.indexOf(b.name);
+      if(ia<0&&ib<0)return 0;if(ia<0)return 1;if(ib<0)return -1;return ia-ib;
+    });
+    return `<div class="group-section"><div class="group-hdr">${label}</div>
+      <div class="ccard-grid" data-group="${g}">${sorted.map(renderCard).join('')}</div></div>`;
+  }).join('');
+  initDrag();
 }
 async function load(){try{const r=await fetch('/api/containers');
   if(r.status===401){location.href='/login';return}
