@@ -965,7 +965,7 @@ main{padding:1.5rem 1.75rem;max-width:1300px;margin:0 auto}
   border-radius:10px;padding:.55rem 1rem;font-size:.72rem;text-transform:uppercase;
   letter-spacing:.09em;color:#8eafd4;font-weight:700;grid-column:1/-1;
   display:flex;align-items:center;gap:.5rem}
-.ccard-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:.75rem}
+.ccard-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,260px));gap:.75rem}
 .ccard{background:linear-gradient(150deg,#0d1929,#0b1623);border:1px solid #182a45;
   border-radius:13px;padding:.95rem 1rem;cursor:grab;
   transition:border-color .2s,transform .15s,box-shadow .15s}
