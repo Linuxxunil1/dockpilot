@@ -814,10 +814,21 @@ async function detectProxy(){
     found=true;
     const name=j.traefik.container;
     const path=j.traefik.dynamic_path;
-    const actionBtn=path
-      ?`<button onclick="placeCaCert('${path.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')" style="padding:.28rem .65rem;border-radius:6px;border:0;background:linear-gradient(135deg,#1d4ed8,#3b82f6);color:#fff;font-size:.75rem;cursor:pointer;font-weight:600">Automatisch ablegen</button>`
-      :`<span style="font-size:.72rem;color:#f87171">Kein dynamic-Pfad gefunden</span>`;
-    traefikEl.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.35rem"><span style="font-size:.78rem;color:#60a5fa">Traefik: ${name}</span>${actionBtn}</div>`;
+    if(path){
+      const btn=document.createElement('button');
+      btn.textContent='Automatisch ablegen';
+      btn.setAttribute('style','padding:.28rem .65rem;border-radius:6px;border:0;background:linear-gradient(135deg,#1d4ed8,#3b82f6);color:#fff;font-size:.75rem;cursor:pointer;font-weight:600');
+      btn.addEventListener('click',()=>placeCaCert(path));
+      const row=document.createElement('div');
+      row.setAttribute('style','display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.35rem');
+      const lbl=document.createElement('span');
+      lbl.setAttribute('style','font-size:.78rem;color:#60a5fa');
+      lbl.textContent='Traefik: '+name;
+      row.appendChild(lbl);row.appendChild(btn);
+      traefikEl.appendChild(row);
+    }else{
+      traefikEl.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.35rem"><span style="font-size:.78rem;color:#60a5fa">Traefik: ${name}</span><span style="font-size:.72rem;color:#f87171">Kein dynamic-Pfad gefunden</span></div>`;
+    }
   }
   if(j.nginx_proxy_manager){
     found=true;
