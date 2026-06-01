@@ -775,23 +775,27 @@ async function saveCredentials(){
   if(pass.length<8){err.textContent='Passwort muss mindestens 8 Zeichen haben.';return}
   if(pass!==pass2){err.textContent='Passwörter stimmen nicht überein.';return}
   err.textContent='';
-  const r=await fetch('/api/setup/credentials',{method:'POST',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify({user,password:pass})});
-  if(r.ok){setStep(2)}
-  else{const j=await r.json().catch(()=>({}));err.textContent=j.detail||'Fehler'}
+  try{
+    const r=await fetch('/api/setup/credentials',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({user,password:pass})});
+    if(r.ok){setStep(2)}
+    else{const j=await r.json().catch(()=>({}));err.textContent=j.detail||'Fehler'}
+  }catch(e){err.textContent='Netzwerkfehler: '+e.message}
 }
 async function generateCert(){
   const btn=document.getElementById('gen-btn');
   btn.disabled=true;btn.textContent='⟳ Generiere…';
-  const r=await fetch('/api/setup/generate-cert',{method:'POST'});
-  if(r.ok){
-    const j=await r.json();
-    document.getElementById('p12-pw').textContent=j.p12_password;
-    document.getElementById('cert-result').style.display='';
-    document.getElementById('finish-btn').disabled=false;
-    btn.style.display='none';
-    detectProxy();
-  }else{btn.disabled=false;btn.textContent='Erneut versuchen'}
+  try{
+    const r=await fetch('/api/setup/generate-cert',{method:'POST'});
+    if(r.ok){
+      const j=await r.json();
+      document.getElementById('p12-pw').textContent=j.p12_password;
+      document.getElementById('cert-result').style.display='';
+      document.getElementById('finish-btn').disabled=false;
+      btn.style.display='none';
+      detectProxy();
+    }else{btn.disabled=false;btn.textContent='Erneut versuchen'}
+  }catch(e){btn.disabled=false;btn.textContent='Fehler: '+e.message}
 }
 async function detectProxy(){
   const scanning=document.getElementById('proxy-scanning');
