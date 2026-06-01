@@ -960,12 +960,15 @@ main{padding:1.5rem 1.75rem;max-width:1300px;margin:0 auto}
 .stxt{font-size:.78rem}.stxt.on{color:#4ade80}.stxt.off{color:#3a5a7a}
 .muted{color:#1e3a55}
 
+#container-grid{display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-start}
 .group-section{background:linear-gradient(150deg,#070e1b,#060b16);border:1px solid #182a45;
-  border-radius:14px;padding:1rem 1.1rem;margin-bottom:1rem}
+  border-radius:14px;padding:1rem 1.1rem}
+.group-section.stack-dragging{opacity:.35;transform:scale(.98)}
+.group-section.stack-drag-over{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.2)}
 .group-hdr{font-size:.72rem;text-transform:uppercase;letter-spacing:.09em;color:#8eafd4;
-  font-weight:700;display:flex;align-items:center;gap:.5rem;
+  font-weight:700;display:flex;align-items:center;gap:.5rem;cursor:grab;
   padding-bottom:.65rem;border-bottom:1px solid #182a45;margin-bottom:.75rem}
-.ccard-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,260px));gap:.75rem}
+.ccard-grid{display:grid;gap:.75rem}
 .ccard{background:linear-gradient(150deg,#0d1929,#0b1623);border:1px solid #182a45;
   border-radius:13px;padding:.95rem 1rem;cursor:grab;
   transition:border-color .2s,transform .15s,box-shadow .15s}
@@ -1135,7 +1138,12 @@ function saveOrder(){
   });
   localStorage.setItem('dp_order',JSON.stringify(o));
 }
-let dragSrc=null;
+function getStackOrder(){try{return JSON.parse(localStorage.getItem('dp_stack_order'))||[]}catch{return[]}}
+function saveStackOrder(){
+  const o=[...document.querySelectorAll('#container-grid>.group-section')].map(s=>s.dataset.stack);
+  localStorage.setItem('dp_stack_order',JSON.stringify(o));
+}
+let dragSrc=null,dragStack=null;
 function initDrag(){
   document.querySelectorAll('.ccard').forEach(card=>{
     card.addEventListener('dragstart',function(e){
@@ -1162,6 +1170,39 @@ function initDrag(){
       if(sp===tp){if(si<di)tp.insertBefore(dragSrc,this.nextSibling);else tp.insertBefore(dragSrc,this);}
       else{tp.insertBefore(dragSrc,this);}
       saveOrder();
+    });
+  });
+}
+function initStackDrag(){
+  document.querySelectorAll('.group-section').forEach(sec=>{
+    sec.addEventListener('dragstart',function(e){
+      if(!e.target.closest('.group-hdr'))return;
+      dragStack=this;e.dataTransfer.effectAllowed='move';
+      e.dataTransfer.setData('text/plain','stack');
+      setTimeout(()=>this.classList.add('stack-dragging'),0);
+    });
+    sec.addEventListener('dragend',function(){
+      this.classList.remove('stack-dragging');
+      document.querySelectorAll('.group-section').forEach(s=>s.classList.remove('stack-drag-over'));
+      dragStack=null;
+    });
+    sec.addEventListener('dragover',function(e){
+      if(!dragStack||dragStack===this)return;
+      e.preventDefault();e.dataTransfer.dropEffect='move';
+      this.classList.add('stack-drag-over');
+    });
+    sec.addEventListener('dragleave',function(e){
+      if(!e.relatedTarget||!this.contains(e.relatedTarget))this.classList.remove('stack-drag-over');
+    });
+    sec.addEventListener('drop',function(e){
+      this.classList.remove('stack-drag-over');
+      if(!dragStack||dragStack===this)return;
+      e.preventDefault();e.stopPropagation();
+      const p=this.parentNode;
+      const all=[...p.querySelectorAll(':scope>.group-section')];
+      const di=all.indexOf(this),si=all.indexOf(dragStack);
+      if(si<di)p.insertBefore(dragStack,this.nextSibling);else p.insertBefore(dragStack,this);
+      saveStackOrder();
     });
   });
 }
@@ -1195,10 +1236,13 @@ function render(list){
   const grid=document.getElementById('container-grid');
   if(!list.length){grid.innerHTML='<div class="muted" style="padding:1.5rem 0">keine Container</div>';return}
   const order=getOrder();
+  const stackOrder=getStackOrder();
   const groups={};
   list.forEach(c=>{const g=c.compose||'__solo__';if(!groups[g])groups[g]=[];groups[g].push(c);});
   const keys=Object.keys(groups).sort((a,b)=>{
-    if(a==='__solo__')return 1;if(b==='__solo__')return -1;return a.localeCompare(b);
+    if(a==='__solo__')return 1;if(b==='__solo__')return -1;
+    const ia=stackOrder.indexOf(a),ib=stackOrder.indexOf(b);
+    if(ia<0&&ib<0)return a.localeCompare(b);if(ia<0)return 1;if(ib<0)return -1;return ia-ib;
   });
   grid.innerHTML=keys.map(g=>{
     const label=g==='__solo__'?'Einzeln':g;
@@ -1210,11 +1254,20 @@ function render(list){
       const ia=saved.indexOf(a.name),ib=saved.indexOf(b.name);
       if(ia<0&&ib<0)return 0;if(ia<0)return 1;if(ib<0)return -1;return ia-ib;
     });
-    return `<div class="group-section">
+    return `<div class="group-section" draggable="true" data-stack="${g}">
       <div class="group-hdr"><span class="dot ${dot}"></span><span>${label}</span><span style="margin-left:auto;font-size:.68rem;color:#4a6a8a;font-weight:400;text-transform:none;letter-spacing:0">${run}/${total} aktiv</span></div>
       <div class="ccard-grid" data-group="${g}">${sorted.map(renderCard).join('')}</div></div>`;
   }).join('');
+  const CARD_W=240,GAP=12;
+  const mainW=(document.querySelector('main')||document.body).clientWidth-35;
+  const maxCols=Math.max(1,Math.floor((mainW+GAP)/(CARD_W+GAP)));
+  [...grid.querySelectorAll('.group-section')].forEach(sec=>{
+    const cg=sec.querySelector('.ccard-grid');
+    const n=Math.min(cg.querySelectorAll('.ccard').length,maxCols);
+    if(n>0)cg.style.gridTemplateColumns=`repeat(${n},${CARD_W}px)`;
+  });
   initDrag();
+  initStackDrag();
 }
 async function load(){try{const r=await fetch('/api/containers');
   if(r.status===401){location.href='/login';return}
