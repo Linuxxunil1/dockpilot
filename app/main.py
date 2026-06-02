@@ -27,6 +27,7 @@ CERTS_DIR  = os.path.join(DATA_DIR, "certs")
 SESSION_TTL = 7 * 24 * 3600
 COOKIE = "dockpilot_session"
 SAFE_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
+TOKENS_FILE = os.path.join(DATA_DIR, "tokens.json")
 
 # Credentials — live aus Datei lesen, Fallback auf Env-Vars
 def _load_creds():
@@ -46,6 +47,19 @@ def _load_creds():
 
 def needs_setup() -> bool:
     return not os.path.isfile(CREDS_FILE)
+
+
+def _load_tokens() -> dict:
+    if os.path.isfile(TOKENS_FILE):
+        with open(TOKENS_FILE) as tf:
+            return json.load(tf)
+    return {}
+
+
+def _save_tokens(tokens: dict):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(TOKENS_FILE, "w") as tf:
+        json.dump(tokens, tf)
 
 client = docker.DockerClient(base_url="unix://var/run/docker.sock")
 app = FastAPI()
@@ -675,6 +689,74 @@ def api_stack_delete(name: str, request: Request):
     return {"ok": True}
 
 
+@app.post("/api/stacks/import")
+async def api_stack_import(request: Request):
+    import urllib.request as ureq
+    import urllib.error
+    require_auth(request)
+    body = await request.json()
+    url = body.get("url", "").strip()
+    token_name = body.get("token", "").strip()
+    stack_name = body.get("name", "").strip()
+    if not url or not stack_name:
+        raise HTTPException(status_code=400, detail="URL und Stack-Name erforderlich")
+    if not SAFE_NAME.match(stack_name):
+        raise HTTPException(status_code=400, detail="Ungültiger Stack-Name")
+    headers = {"User-Agent": "dockpilot/1.0"}
+    if token_name:
+        tokens = _load_tokens()
+        token_val = tokens.get(token_name)
+        if not token_val:
+            raise HTTPException(status_code=400, detail=f"Token '{token_name}' nicht gefunden")
+        headers["Authorization"] = f"Bearer {token_val}"
+    try:
+        req = ureq.Request(url, headers=headers)
+        with ureq.urlopen(req, timeout=30) as resp:
+            content = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        raise HTTPException(status_code=400, detail=f"HTTP {exc.code}: {exc.reason}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Download fehlgeschlagen: {exc}") from exc
+    d = _stack_dir(stack_name)
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, "docker-compose.yaml"), "w") as f:
+        f.write(content)
+    return {"ok": True}
+
+
+# ----------------------------- Token-Verwaltung -----------------------------
+@app.get("/api/tokens")
+def api_tokens_list(request: Request):
+    require_auth(request)
+    return JSONResponse(list(_load_tokens().keys()))
+
+
+@app.put("/api/tokens/{name}")
+async def api_token_save(name: str, request: Request):
+    require_auth(request)
+    if not SAFE_NAME.match(name):
+        raise HTTPException(status_code=400, detail="Ungültiger Token-Name")
+    body = await request.json()
+    value = body.get("value", "").strip()
+    if not value:
+        raise HTTPException(status_code=400, detail="Token-Wert darf nicht leer sein")
+    tokens = _load_tokens()
+    tokens[name] = value
+    _save_tokens(tokens)
+    return {"ok": True}
+
+
+@app.delete("/api/tokens/{name}")
+def api_token_delete(name: str, request: Request):
+    require_auth(request)
+    tokens = _load_tokens()
+    if name not in tokens:
+        raise HTTPException(status_code=404, detail="Token nicht gefunden")
+    del tokens[name]
+    _save_tokens(tokens)
+    return {"ok": True}
+
+
 # ----------------------------- Templates -----------------------------
 SETUP_HTML = """<!doctype html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1058,7 +1140,60 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
   padding:.9rem 1.1rem;font-family:'JetBrains Mono','Fira Code',ui-monospace,monospace;
   font-size:.77rem;color:#6a8aaa;white-space:pre-wrap;max-height:220px;overflow-y:auto;line-height:1.65}
 .empty-state{color:#1e3a55;font-size:.875rem;padding:3rem 0;text-align:center}
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;display:flex;align-items:center;justify-content:center}
+.modal{background:linear-gradient(150deg,#0e1a2e,#0c1828);border:1px solid #182a45;border-radius:16px;padding:1.75rem;width:420px;max-width:calc(100vw - 2rem);box-shadow:0 24px 64px rgba(0,0,0,.7)}
+.modal h3{margin:0 0 1.2rem;font-size:1.05rem;font-weight:700;color:#f0f6ff}
+.modal label{display:block;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;margin:.85rem 0 .3rem;color:#4a6a8a}
+.modal input,.modal select{width:100%;padding:.6rem .85rem;border-radius:8px;border:1px solid #182a45;background:#070d1a;color:#dce8f8;font-size:.88rem;transition:border-color .2s;user-select:text}
+.modal input:focus,.modal select:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgba(59,130,246,.08)}
+.modal select option{background:#0c1828}
+.modal-actions{display:flex;gap:.5rem;margin-top:1.4rem;justify-content:flex-end}
+.modal-actions button{padding:.5rem 1.1rem;border:0;border-radius:8px;font-size:.85rem;font-weight:600;cursor:pointer}
+.modal-err{color:#f87171;font-size:.8rem;margin-top:.6rem;min-height:1rem}
+.token-list{margin-top:1rem}
+.token-row{display:flex;align-items:center;justify-content:space-between;padding:.5rem .7rem;border:1px solid #182a45;border-radius:8px;margin-bottom:.4rem;font-size:.83rem}
+.token-row span{color:#8eafd4}
+.token-row button{border:0;background:rgba(239,68,68,.15);color:#f87171;border-radius:5px;padding:.22rem .55rem;font-size:.75rem;cursor:pointer}
+.token-row button:hover{background:rgba(239,68,68,.28)}
 </style></head><body>
+
+<!-- Token Modal -->
+<div id="token-modal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeTokenModal()">
+  <div class="modal">
+    <h3>🔑 Tokens verwalten</h3>
+    <label>Token-Name</label>
+    <input type="text" id="tok-name" placeholder="z.B. github oder gitea">
+    <label>Token-Wert</label>
+    <input type="password" id="tok-value" placeholder="ghp_… oder glpat-…">
+    <div class="modal-err" id="tok-err"></div>
+    <div class="modal-actions">
+      <button style="background:#0e1e35;color:#7a9ac0;border:1px solid #1a3050" onclick="closeTokenModal()">Schließen</button>
+      <button style="background:linear-gradient(135deg,#166534,#22c55e);color:#fff" onclick="saveToken()">Token speichern</button>
+    </div>
+    <div class="token-list" id="token-list"></div>
+  </div>
+</div>
+
+<!-- Import Modal -->
+<div id="import-modal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeImportDialog()">
+  <div class="modal">
+    <h3>⬇ Stack importieren</h3>
+    <label>URL zur docker-compose.yaml</label>
+    <input type="text" id="imp-url" placeholder="https://raw.githubusercontent.com/…/docker-compose.yaml">
+    <label>Stack-Name</label>
+    <input type="text" id="imp-name" placeholder="mein-stack">
+    <label>Token (optional)</label>
+    <select id="imp-token">
+      <option value="">— kein Token —</option>
+    </select>
+    <div class="modal-err" id="imp-err"></div>
+    <div class="modal-actions">
+      <button style="background:#0e1e35;color:#7a9ac0;border:1px solid #1a3050" onclick="closeImportDialog()">Abbrechen</button>
+      <button id="imp-btn" style="background:linear-gradient(135deg,#1d4ed8,#3b82f6);color:#fff" onclick="doImport()">Importieren</button>
+    </div>
+  </div>
+</div>
+
 <header>
   <div class="logo">🐳 dock<span>pilot</span></div>
   <div class="right">
@@ -1078,6 +1213,10 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
 </div>
 
 <div id="view-stacks" style="display:none">
+  <div style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap">
+    <button class="tbtn" style="background:linear-gradient(135deg,#1e3a8a,#3b82f6)" onclick="openImportDialog()">⬇ Stack importieren</button>
+    <button class="tbtn" style="background:linear-gradient(135deg,#1e293b,#334155)" onclick="openTokenModal()">🔑 Tokens verwalten</button>
+  </div>
   <div id="scard-grid" class="scard-grid"><div class="empty-state">lädt…</div></div>
   <div class="stack-editor-panel" id="stack-editor" style="display:none">
     <div class="stack-toolbar">
@@ -1406,5 +1545,68 @@ function newStack(){
   document.getElementById('stack-output').style.display='none';
   document.getElementById('stack-editor').scrollIntoView({behavior:'smooth',block:'nearest'});
   loadStacks();toast('Anpassen und dann Speichern');
+}
+
+// ---- Token Modal ----
+async function openTokenModal(){
+  document.getElementById('tok-name').value='';
+  document.getElementById('tok-value').value='';
+  document.getElementById('tok-err').textContent='';
+  document.getElementById('token-modal').style.display='';
+  await refreshTokenList();
+}
+function closeTokenModal(){document.getElementById('token-modal').style.display='none'}
+async function refreshTokenList(){
+  const r=await fetch('/api/tokens');
+  const names=r.ok?await r.json():[];
+  const el=document.getElementById('token-list');
+  if(!names.length){el.innerHTML='<div style="font-size:.78rem;color:#3a5a7a;margin-top:.5rem">Noch keine Tokens gespeichert.</div>';return}
+  el.innerHTML=names.map(n=>`<div class="token-row"><span>${n}</span><button onclick="deleteToken('${n}')">Löschen</button></div>`).join('');
+}
+async function saveToken(){
+  const name=document.getElementById('tok-name').value.trim();
+  const value=document.getElementById('tok-value').value.trim();
+  const err=document.getElementById('tok-err');
+  if(!name||!value){err.textContent='Name und Wert sind erforderlich.';return}
+  if(!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(name)){err.textContent='Ungültiger Name (Buchstaben, Ziffern, - und _).';return}
+  err.textContent='';
+  const r=await fetch(`/api/tokens/${encodeURIComponent(name)}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({value})});
+  if(r.ok){document.getElementById('tok-name').value='';document.getElementById('tok-value').value='';toast('Token gespeichert');await refreshTokenList();}
+  else{const j=await r.json().catch(()=>({}));err.textContent=j.detail||'Fehler'}
+}
+async function deleteToken(name){
+  if(!confirm(`Token "${name}" löschen?`))return;
+  const r=await fetch(`/api/tokens/${encodeURIComponent(name)}`,{method:'DELETE'});
+  if(r.ok){toast('Token gelöscht');await refreshTokenList();}
+  else toast('Fehler beim Löschen',true);
+}
+
+// ---- Import Dialog ----
+async function openImportDialog(){
+  document.getElementById('imp-url').value='';
+  document.getElementById('imp-name').value='';
+  document.getElementById('imp-err').textContent='';
+  const r=await fetch('/api/tokens');
+  const names=r.ok?await r.json():[];
+  const sel=document.getElementById('imp-token');
+  sel.innerHTML='<option value="">— kein Token —</option>'+names.map(n=>`<option value="${n}">${n}</option>`).join('');
+  document.getElementById('import-modal').style.display='';
+}
+function closeImportDialog(){document.getElementById('import-modal').style.display='none'}
+async function doImport(){
+  const url=document.getElementById('imp-url').value.trim();
+  const name=document.getElementById('imp-name').value.trim();
+  const token=document.getElementById('imp-token').value;
+  const err=document.getElementById('imp-err');
+  const btn=document.getElementById('imp-btn');
+  if(!url||!name){err.textContent='URL und Stack-Name sind erforderlich.';return}
+  err.textContent='';btn.disabled=true;btn.textContent='⟳ Lädt…';
+  try{
+    const r=await fetch('/api/stacks/import',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({url,name,token})});
+    const j=await r.json().catch(()=>({}));
+    if(r.ok){closeImportDialog();toast(`"${name}" importiert`);loadStacks();}
+    else{err.textContent=j.detail||'Fehler';btn.disabled=false;btn.textContent='Importieren';}
+  }catch(e){err.textContent='Netzwerkfehler: '+e.message;btn.disabled=false;btn.textContent='Importieren';}
 }
 </script></body></html>"""
