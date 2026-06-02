@@ -27,7 +27,8 @@ CERTS_DIR  = os.path.join(DATA_DIR, "certs")
 SESSION_TTL = 7 * 24 * 3600
 COOKIE = "dockpilot_session"
 SAFE_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
-TOKENS_FILE = os.path.join(DATA_DIR, "tokens.json")
+TOKENS_FILE    = os.path.join(DATA_DIR, "tokens.json")
+DOCKER_CFG_DIR = os.path.join(DATA_DIR, "docker")
 
 # Credentials — live aus Datei lesen, Fallback auf Env-Vars
 def _load_creds():
@@ -60,6 +61,41 @@ def _save_tokens(tokens: dict):
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(TOKENS_FILE, "w") as tf:
         json.dump(tokens, tf)
+
+
+def _docker_cfg() -> dict:
+    cfg_file = os.path.join(DOCKER_CFG_DIR, "config.json")
+    if os.path.isfile(cfg_file):
+        with open(cfg_file) as f:
+            return json.load(f)
+    return {"auths": {}}
+
+
+def _write_docker_cfg(cfg: dict):
+    import base64
+    os.makedirs(DOCKER_CFG_DIR, exist_ok=True)
+    cfg_file = os.path.join(DOCKER_CFG_DIR, "config.json")
+    with open(cfg_file, "w") as f:
+        json.dump(cfg, f, indent=2)
+
+
+def _registry_add(registry: str, username: str, password: str):
+    import base64
+    cfg = _docker_cfg()
+    token = base64.b64encode(f"{username}:{password}".encode()).decode()
+    cfg.setdefault("auths", {})[registry] = {"auth": token}
+    _write_docker_cfg(cfg)
+
+
+def _registry_remove(registry: str):
+    cfg = _docker_cfg()
+    cfg.setdefault("auths", {}).pop(registry, None)
+    _write_docker_cfg(cfg)
+
+
+def _registry_list() -> list:
+    return list(_docker_cfg().get("auths", {}).keys())
+
 
 client = docker.DockerClient(base_url="unix://var/run/docker.sock")
 app = FastAPI()
@@ -335,6 +371,7 @@ def _run_compose(name: str, *args, timeout: int = 300) -> dict:
     d = _stack_dir(name)
     if not os.path.isdir(d):
         raise HTTPException(status_code=404, detail="Stack nicht gefunden")
+    env = {**os.environ, "DOCKER_CONFIG": DOCKER_CFG_DIR}
     try:
         proc = subprocess.run(
             ["docker", "compose", *args],
@@ -342,6 +379,7 @@ def _run_compose(name: str, *args, timeout: int = 300) -> dict:
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=env,
         )
         combined = (proc.stdout + proc.stderr).strip()
         return {"ok": proc.returncode == 0, "out": combined}
@@ -757,6 +795,35 @@ def api_token_delete(name: str, request: Request):
     return {"ok": True}
 
 
+# ----------------------------- Registry-Zugangsdaten -----------------------------
+@app.get("/api/registries")
+def api_registries_list(request: Request):
+    require_auth(request)
+    return JSONResponse(_registry_list())
+
+
+@app.post("/api/registries")
+async def api_registry_add(request: Request):
+    require_auth(request)
+    body = await request.json()
+    registry = body.get("registry", "").strip()
+    username = body.get("username", "").strip()
+    password = body.get("password", "").strip()
+    if not registry or not username or not password:
+        raise HTTPException(status_code=400, detail="Registry, Benutzername und Passwort/Token erforderlich")
+    _registry_add(registry, username, password)
+    return {"ok": True}
+
+
+@app.delete("/api/registries/{registry:path}")
+def api_registry_delete(registry: str, request: Request):
+    require_auth(request)
+    if registry not in _registry_list():
+        raise HTTPException(status_code=404, detail="Registry nicht gefunden")
+    _registry_remove(registry)
+    return {"ok": True}
+
+
 # ----------------------------- Templates -----------------------------
 SETUP_HTML = """<!doctype html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1157,20 +1224,47 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
 .token-row button:hover{background:rgba(239,68,68,.28)}
 </style></head><body>
 
-<!-- Token Modal -->
+<!-- Token / Registry Modal -->
 <div id="token-modal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeTokenModal()">
-  <div class="modal">
-    <h3>🔑 Tokens verwalten</h3>
-    <label>Token-Name</label>
-    <input type="text" id="tok-name" placeholder="z.B. github oder gitea">
-    <label>Token-Wert</label>
-    <input type="password" id="tok-value" placeholder="ghp_… oder glpat-…">
-    <div class="modal-err" id="tok-err"></div>
-    <div class="modal-actions">
-      <button style="background:#0e1e35;color:#7a9ac0;border:1px solid #1a3050" onclick="closeTokenModal()">Schließen</button>
-      <button style="background:linear-gradient(135deg,#166534,#22c55e);color:#fff" onclick="saveToken()">Token speichern</button>
+  <div class="modal" style="width:480px">
+    <div style="display:flex;gap:.5rem;margin-bottom:1.2rem">
+      <button id="mtab-tok" onclick="switchMtab('tok')" style="flex:1;padding:.45rem;border-radius:7px;border:0;font-size:.82rem;font-weight:600;cursor:pointer;background:linear-gradient(135deg,#1d4ed8,#3b82f6);color:#fff">Import-Tokens</button>
+      <button id="mtab-reg" onclick="switchMtab('reg')" style="flex:1;padding:.45rem;border-radius:7px;border:0;font-size:.82rem;font-weight:600;cursor:pointer;background:#0e1e35;color:#7a9ac0;border:1px solid #1a3050">Registry-Login</button>
     </div>
-    <div class="token-list" id="token-list"></div>
+
+    <!-- Tab: Import-Tokens -->
+    <div id="mtab-tok-panel">
+      <div style="font-size:.78rem;color:#4a6a8a;margin-bottom:.85rem">Bearer-Token für HTTP-Downloads (compose-Datei aus privatem Repo holen)</div>
+      <label>Token-Name</label>
+      <input type="text" id="tok-name" placeholder="z.B. github oder gitea">
+      <label>Token-Wert</label>
+      <input type="password" id="tok-value" placeholder="ghp_… oder glpat-…">
+      <div class="modal-err" id="tok-err"></div>
+      <div class="modal-actions">
+        <button style="background:linear-gradient(135deg,#166534,#22c55e);color:#fff" onclick="saveToken()">Token speichern</button>
+      </div>
+      <div class="token-list" id="token-list"></div>
+    </div>
+
+    <!-- Tab: Registry-Login -->
+    <div id="mtab-reg-panel" style="display:none">
+      <div style="font-size:.78rem;color:#4a6a8a;margin-bottom:.85rem">Docker-Registry-Zugangsdaten für <code style="background:#0a1220;padding:.1rem .4rem;border-radius:4px;color:#60a5fa">docker compose pull</code></div>
+      <label>Registry</label>
+      <input type="text" id="reg-url" placeholder="ghcr.io  oder  registry.example.com">
+      <label>Benutzername</label>
+      <input type="text" id="reg-user" placeholder="Benutzername">
+      <label>Passwort / Token</label>
+      <input type="password" id="reg-pass" placeholder="ghp_… oder Passwort">
+      <div class="modal-err" id="reg-err"></div>
+      <div class="modal-actions">
+        <button style="background:linear-gradient(135deg,#166534,#22c55e);color:#fff" onclick="saveRegistry()">Registry speichern</button>
+      </div>
+      <div class="token-list" id="registry-list"></div>
+    </div>
+
+    <div style="margin-top:1rem;text-align:right">
+      <button style="background:#0e1e35;color:#7a9ac0;border:1px solid #1a3050;padding:.45rem 1rem;border-radius:7px;cursor:pointer;font-size:.82rem" onclick="closeTokenModal()">Schließen</button>
+    </div>
   </div>
 </div>
 
@@ -1215,7 +1309,8 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
 <div id="view-stacks" style="display:none">
   <div style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap">
     <button class="tbtn" style="background:linear-gradient(135deg,#1e3a8a,#3b82f6)" onclick="openImportDialog()">⬇ Stack importieren</button>
-    <button class="tbtn" style="background:linear-gradient(135deg,#1e293b,#334155)" onclick="openTokenModal()">🔑 Tokens verwalten</button>
+    <button class="tbtn" style="background:linear-gradient(135deg,#1e293b,#334155)" onclick="openTokenModal('reg')">🔑 Registry-Login</button>
+    <button class="tbtn" style="background:linear-gradient(135deg,#1e293b,#334155);opacity:.8" onclick="openTokenModal('tok')">Import-Tokens</button>
   </div>
   <div id="scard-grid" class="scard-grid"><div class="empty-state">lädt…</div></div>
   <div class="stack-editor-panel" id="stack-editor" style="display:none">
@@ -1547,15 +1642,30 @@ function newStack(){
   loadStacks();toast('Anpassen und dann Speichern');
 }
 
-// ---- Token Modal ----
-async function openTokenModal(){
+// ---- Token / Registry Modal ----
+function switchMtab(tab){
+  const isReg=tab==='reg';
+  document.getElementById('mtab-tok-panel').style.display=isReg?'none':'';
+  document.getElementById('mtab-reg-panel').style.display=isReg?'':'none';
+  const active='background:linear-gradient(135deg,#1d4ed8,#3b82f6);color:#fff;border:0';
+  const inactive='background:#0e1e35;color:#7a9ac0;border:1px solid #1a3050';
+  document.getElementById('mtab-tok').style.cssText=`flex:1;padding:.45rem;border-radius:7px;font-size:.82rem;font-weight:600;cursor:pointer;${isReg?inactive:active}`;
+  document.getElementById('mtab-reg').style.cssText=`flex:1;padding:.45rem;border-radius:7px;font-size:.82rem;font-weight:600;cursor:pointer;${isReg?active:inactive}`;
+  if(isReg)refreshRegistryList();else refreshTokenList();
+}
+async function openTokenModal(tab){
   document.getElementById('tok-name').value='';
   document.getElementById('tok-value').value='';
   document.getElementById('tok-err').textContent='';
+  document.getElementById('reg-url').value='';
+  document.getElementById('reg-user').value='';
+  document.getElementById('reg-pass').value='';
+  document.getElementById('reg-err').textContent='';
   document.getElementById('token-modal').style.display='';
-  await refreshTokenList();
+  switchMtab(tab||'tok');
 }
 function closeTokenModal(){document.getElementById('token-modal').style.display='none'}
+
 async function refreshTokenList(){
   const r=await fetch('/api/tokens');
   const names=r.ok?await r.json():[];
@@ -1578,6 +1688,31 @@ async function deleteToken(name){
   if(!confirm(`Token "${name}" löschen?`))return;
   const r=await fetch(`/api/tokens/${encodeURIComponent(name)}`,{method:'DELETE'});
   if(r.ok){toast('Token gelöscht');await refreshTokenList();}
+  else toast('Fehler beim Löschen',true);
+}
+
+async function refreshRegistryList(){
+  const r=await fetch('/api/registries');
+  const regs=r.ok?await r.json():[];
+  const el=document.getElementById('registry-list');
+  if(!regs.length){el.innerHTML='<div style="font-size:.78rem;color:#3a5a7a;margin-top:.5rem">Noch keine Registries gespeichert.</div>';return}
+  el.innerHTML=regs.map(reg=>`<div class="token-row"><span>${reg}</span><button onclick="deleteRegistry('${reg}')">Löschen</button></div>`).join('');
+}
+async function saveRegistry(){
+  const registry=document.getElementById('reg-url').value.trim();
+  const username=document.getElementById('reg-user').value.trim();
+  const password=document.getElementById('reg-pass').value.trim();
+  const err=document.getElementById('reg-err');
+  if(!registry||!username||!password){err.textContent='Alle Felder sind erforderlich.';return}
+  err.textContent='';
+  const r=await fetch('/api/registries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({registry,username,password})});
+  if(r.ok){document.getElementById('reg-url').value='';document.getElementById('reg-user').value='';document.getElementById('reg-pass').value='';toast('Registry gespeichert');await refreshRegistryList();}
+  else{const j=await r.json().catch(()=>({}));err.textContent=j.detail||'Fehler'}
+}
+async function deleteRegistry(reg){
+  if(!confirm(`Registry "${reg}" entfernen?`))return;
+  const r=await fetch(`/api/registries/${encodeURIComponent(reg)}`,{method:'DELETE'});
+  if(r.ok){toast('Registry entfernt');await refreshRegistryList();}
   else toast('Fehler beim Löschen',true);
 }
 
