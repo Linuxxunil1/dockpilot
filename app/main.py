@@ -28,14 +28,14 @@ COOKIE = "dockpilot_session"
 SAFE_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
 
 # Credentials — live aus Datei lesen, Fallback auf Env-Vars
-def _load_creds() -> tuple[str, str, bytes]:
+def _load_creds():
     if os.path.isfile(CREDS_FILE):
-        with open(CREDS_FILE) as f:
-            d = json.load(f)
+        with open(CREDS_FILE) as creds_file:
+            creds_data = json.load(creds_file)
         return (
-            d.get("user",   os.environ.get("DASH_USER",   "admin")),
-            d.get("password", os.environ.get("DASH_PASSWORD", "changeme")),
-            d.get("secret", os.environ.get("DASH_SECRET", "insecure")).encode(),
+            creds_data.get("user",   os.environ.get("DASH_USER",   "admin")),
+            creds_data.get("password", os.environ.get("DASH_PASSWORD", "changeme")),
+            creds_data.get("secret", os.environ.get("DASH_SECRET", "insecure")).encode(),
         )
     return (
         os.environ.get("DASH_USER",   "admin"),
@@ -53,21 +53,21 @@ app = FastAPI()
 # ----------------------------- Auth -----------------------------
 def make_token() -> str:
     _, _, secret = _load_creds()
-    ts = str(int(time.time()))
-    sig = hmac.new(secret, ts.encode(), hashlib.sha256).hexdigest()
-    return f"{ts}.{sig}"
+    timestamp = str(int(time.time()))
+    sig = hmac.new(secret, timestamp.encode(), hashlib.sha256).hexdigest()
+    return f"{timestamp}.{sig}"
 
 
 def valid_token(token: str | None) -> bool:
     if not token or "." not in token:
         return False
     _, _, secret = _load_creds()
-    ts, sig = token.split(".", 1)
-    expected = hmac.new(secret, ts.encode(), hashlib.sha256).hexdigest()
+    timestamp, sig = token.split(".", 1)
+    expected = hmac.new(secret, timestamp.encode(), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(sig, expected):
         return False
     try:
-        return (time.time() - int(ts)) < SESSION_TTL
+        return (time.time() - int(timestamp)) < SESSION_TTL
     except ValueError:
         return False
 
@@ -113,16 +113,16 @@ def container_cpu_mem(c):
     except (KeyError, TypeError):
         pass
 
-    rx = tx = None
+    rx_bytes = tx_bytes = None
     try:
         nets = second.get("networks", {})
-        rx = sum(n.get("rx_bytes", 0) for n in nets.values())
-        tx = sum(n.get("tx_bytes", 0) for n in nets.values())
-    except Exception:
+        rx_bytes = sum(n.get("rx_bytes", 0) for n in nets.values())
+        tx_bytes = sum(n.get("tx_bytes", 0) for n in nets.values())
+    except (KeyError, TypeError, AttributeError):
         pass
 
     return {"cpu": cpu, "mem": mem_pct, "mem_used": mem_used,
-            "mem_limit": mem_limit, "net_rx": rx, "net_tx": tx}
+            "mem_limit": mem_limit, "net_rx": rx_bytes, "net_tx": tx_bytes}
 
 
 def serialize(c):
@@ -146,6 +146,7 @@ def serialize(c):
 
 # ----------------------------- Update -----------------------------
 def recreate_with_new_image(c):
+    """Pull a newer image for container c and recreate it with the same configuration."""
     attrs = c.attrs
     cfg = attrs["Config"]
     host_cfg = attrs["HostConfig"]
@@ -221,75 +222,82 @@ HOST_ROOT = "/host" if os.path.isdir("/host") else "/"
 
 
 def _cpu_times():
-    with open("/proc/stat") as f:
-        parts = f.readline().split()[1:]
+    with open("/proc/stat") as stat_file:
+        parts = stat_file.readline().split()[1:]
     vals = [int(x) for x in parts]
     idle = vals[3] + (vals[4] if len(vals) > 4 else 0)
     return sum(vals), idle
 
 
-def host_stats():
-    cpu = None
+def _cpu_percent():
     try:
-        t1, i1 = _cpu_times()
+        total1, idle1 = _cpu_times()
         time.sleep(0.25)
-        t2, i2 = _cpu_times()
-        dt, di = t2 - t1, i2 - i1
-        if dt > 0:
-            cpu = round((1 - di / dt) * 100, 1)
+        total2, idle2 = _cpu_times()
+        delta_total = total2 - total1
+        if delta_total > 0:
+            return round((1 - (idle2 - idle1) / delta_total) * 100, 1)
     except Exception:
         pass
+    return None
 
-    mem_total = mem_avail = None
+
+def _mem_stats():
     try:
         info = {}
-        with open("/proc/meminfo") as f:
-            for line in f:
-                k, v = line.split(":", 1)
-                info[k] = int(v.strip().split()[0]) * 1024
+        with open("/proc/meminfo") as meminfo_file:
+            for line in meminfo_file:
+                key, val = line.split(":", 1)
+                info[key] = int(val.strip().split()[0]) * 1024
         mem_total = info.get("MemTotal")
         mem_avail = info.get("MemAvailable")
+        mem_used = (mem_total - mem_avail) if (mem_total and mem_avail is not None) else None
+        return mem_total, mem_used
     except Exception:
-        pass
-    mem_used = (mem_total - mem_avail) if (mem_total and mem_avail is not None) else None
+        return None, None
 
-    load = uptime = None
-    try:
-        with open("/proc/loadavg") as f:
-            load = [float(x) for x in f.read().split()[:3]]
-    except Exception:
-        pass
-    try:
-        with open("/proc/uptime") as f:
-            uptime = float(f.read().split()[0])
-    except Exception:
-        pass
 
+def _disk_stats():
     disk = None
     try:
-        du = shutil.disk_usage(HOST_ROOT)
-        disk = {"total": du.total, "used": du.used, "free": du.free}
-    except Exception:
+        disk_usage = shutil.disk_usage(HOST_ROOT)
+        disk = {"total": disk_usage.total, "used": disk_usage.used, "free": disk_usage.free}
+    except OSError:
         pass
-
     docker_disk = None
     try:
-        df = client.df()
-        images = df.get("Images") or []
+        docker_df = client.df()
+        images = docker_df.get("Images") or []
         docker_disk = {
-            "images": sum(i.get("Size", 0) for i in images),
-            "containers": sum(c.get("SizeRw", 0) or 0 for c in (df.get("Containers") or [])),
+            "images": sum(img.get("Size", 0) for img in images),
+            "containers": sum(c.get("SizeRw", 0) or 0 for c in (docker_df.get("Containers") or [])),
             "volumes": sum(v.get("UsageData", {}).get("Size", 0) or 0
-                           for v in (df.get("Volumes") or [])),
-            "build_cache": sum(b.get("Size", 0) for b in (df.get("BuildCache") or [])),
+                           for v in (docker_df.get("Volumes") or [])),
+            "build_cache": sum(b.get("Size", 0) for b in (docker_df.get("BuildCache") or [])),
             "images_count": len(images),
         }
     except Exception:
         pass
+    return disk, docker_disk
 
-    nproc = os.cpu_count()
+
+def host_stats():
+    cpu = _cpu_percent()
+    mem_total, mem_used = _mem_stats()
+    load = uptime = None
+    try:
+        with open("/proc/loadavg") as loadavg_file:
+            load = [float(x) for x in loadavg_file.read().split()[:3]]
+    except Exception:
+        pass
+    try:
+        with open("/proc/uptime") as uptime_file:
+            uptime = float(uptime_file.read().split()[0])
+    except Exception:
+        pass
+    disk, docker_disk = _disk_stats()
     return {
-        "cpu": cpu, "cpus": nproc,
+        "cpu": cpu, "cpus": os.cpu_count(),
         "mem_total": mem_total, "mem_used": mem_used,
         "mem_pct": round(mem_used / mem_total * 100, 1) if (mem_used and mem_total) else None,
         "load": load, "uptime": uptime,
@@ -309,17 +317,17 @@ def _run_compose(name: str, *args, timeout: int = 300) -> dict:
     if not os.path.isdir(d):
         raise HTTPException(status_code=404, detail="Stack nicht gefunden")
     try:
-        r = subprocess.run(
+        proc = subprocess.run(
             ["docker", "compose", *args],
             cwd=d,
             capture_output=True,
             text=True,
             timeout=timeout,
         )
-        combined = (r.stdout + r.stderr).strip()
-        return {"ok": r.returncode == 0, "out": combined}
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="Timeout — Operation dauerte zu lang")
+        combined = (proc.stdout + proc.stderr).strip()
+        return {"ok": proc.returncode == 0, "out": combined}
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(status_code=504, detail="Timeout — Operation dauerte zu lang") from exc
 
 
 # ----------------------------- Routes -----------------------------
@@ -337,8 +345,8 @@ async def setup_credentials(request: Request):
         raise HTTPException(status_code=400, detail="Benutzername und Passwort (min. 8 Zeichen) erforderlich")
     os.makedirs(DATA_DIR, exist_ok=True)
     new_secret = secrets.token_hex(32)
-    with open(CREDS_FILE, "w") as f:
-        json.dump({"user": user, "password": password, "secret": new_secret}, f)
+    with open(CREDS_FILE, "w") as creds_out:
+        json.dump({"user": user, "password": password, "secret": new_secret}, creds_out)
     return {"ok": True}
 
 
@@ -372,7 +380,9 @@ def setup_generate_cert():
         .not_valid_before(now)
         .not_valid_after(now + datetime.timedelta(days=3650))
         .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
-        .add_extension(x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH]), critical=False)
+        .add_extension(
+            x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH]),
+            critical=False)
         .sign(ca_key, hashes.SHA256())
     )
 
@@ -414,54 +424,55 @@ def setup_download(filename: str):
 def _data_host_path() -> str:
     """Findet den Host-Pfad des /data-Volumes durch Inspektion des eigenen Containers."""
     try:
-        me = client.containers.get("dockpilot")
-        for m in me.attrs.get("Mounts", []):
-            if m.get("Destination") == "/data":
-                return m["Source"]
+        own_container = client.containers.get("dockpilot")
+        for mount in own_container.attrs.get("Mounts", []):
+            if mount.get("Destination") == "/data":
+                return mount["Source"]
     except Exception:
         pass
     return DATA_DIR
 
 
+def _traefik_dynamic_path(container) -> str:
+    """Resolve Traefik's dynamic config directory from container args and mounts."""
+    file_dir = None
+    for arg in container.attrs.get("Args", []):
+        if arg.startswith("--providers.file.filename="):
+            file_dir = os.path.dirname(arg.split("=", 1)[1])
+            break
+        if arg.startswith("--providers.file.directory="):
+            file_dir = arg.split("=", 1)[1]
+            break
+    mounts = container.attrs.get("Mounts", [])
+    if file_dir:
+        for mount in mounts:
+            dest = mount.get("Destination", "").rstrip("/")
+            if file_dir.startswith(dest + "/") or file_dir == dest:
+                rel = file_dir[len(dest):].lstrip("/")
+                return os.path.join(mount["Source"], rel) if rel else mount["Source"]
+    for mount in mounts:
+        src = mount.get("Source", "").lower()
+        dst = mount.get("Destination", "").lower()
+        if "dynamic" in src or "dynamic" in dst:
+            return mount["Source"]
+    return None
+
+
 @app.get("/api/setup/detect-proxy")
 def setup_detect_proxy():
+    """Detect reverse proxy containers (Traefik, Nginx Proxy Manager)."""
     result = {"traefik": None, "nginx_proxy_manager": None}
     try:
-        for c in client.containers.list():
-            image = c.attrs["Config"]["Image"].lower()
-            name  = c.name.lower()
-            # Match actual Traefik proxy: image basename starts with "traefik" (excludes traefik/whoami etc.)
+        for container in client.containers.list():
+            image = container.attrs["Config"]["Image"].lower()
             img_base = image.split("/")[-1] if "/" in image else image
-            is_traefik = name == "traefik" or img_base.startswith("traefik")
-            if is_traefik:
-                # Find dynamic config dir from --providers.file.filename or --providers.file.directory arg
-                file_dir = None
-                for arg in c.attrs.get("Args", []):
-                    if arg.startswith("--providers.file.filename="):
-                        file_dir = os.path.dirname(arg.split("=", 1)[1])
-                        break
-                    elif arg.startswith("--providers.file.directory="):
-                        file_dir = arg.split("=", 1)[1]
-                        break
-                # Map container path → host path via mounts
-                dynamic_path = None
-                mounts = c.attrs.get("Mounts", [])
-                if file_dir:
-                    for m in mounts:
-                        dest = m.get("Destination", "").rstrip("/")
-                        if file_dir.startswith(dest + "/") or file_dir == dest:
-                            rel = file_dir[len(dest):].lstrip("/")
-                            dynamic_path = os.path.join(m["Source"], rel) if rel else m["Source"]
-                            break
-                # Fallback: search mounts for "dynamic" in path
-                if not dynamic_path:
-                    for m in mounts:
-                        if "dynamic" in m.get("Destination","").lower() or "dynamic" in m.get("Source","").lower():
-                            dynamic_path = m["Source"]
-                            break
-                result["traefik"] = {"container": c.name, "dynamic_path": dynamic_path}
+            if container.name.lower() == "traefik" or img_base.startswith("traefik"):
+                result["traefik"] = {
+                    "container": container.name,
+                    "dynamic_path": _traefik_dynamic_path(container),
+                }
             elif "nginx-proxy-manager" in image or "jc21/nginx" in image:
-                result["nginx_proxy_manager"] = {"container": c.name}
+                result["nginx_proxy_manager"] = {"container": container.name}
     except Exception:
         pass
     return JSONResponse(result)
@@ -488,19 +499,20 @@ async def setup_place_ca_cert(request: Request):
             remove=True,
         )
         return {"ok": True, "placed_at": os.path.join(target, "dockpilot-ca.crt")}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(error: str = ""):
+    """Render login page; redirect to setup wizard if not yet configured."""
     if needs_setup():
         return RedirectResponse(url="/setup", status_code=303)
     return LOGIN_HTML.replace("{{ERROR}}", error)
 
 
 @app.post("/login")
-def login(response: Response, username: str = Form(...), password: str = Form(...)):
+def login(username: str = Form(...), password: str = Form(...)):
     user, pw, _ = _load_creds()
     user_ok = hmac.compare_digest(username, user)
     pass_ok = hmac.compare_digest(password, pw)
@@ -546,6 +558,7 @@ def api_host(request: Request):
 
 @app.get("/api/sizes")
 def api_sizes(request: Request):
+    """Return disk sizes (RW layer + rootfs) for all containers."""
     require_auth(request)
     raw = client.api.containers(all=True, size=True)
     out = {}
@@ -572,28 +585,30 @@ def api_action(cid: str, action: str, request: Request):
             recreate_with_new_image(c)
         else:
             raise HTTPException(status_code=400, detail="Unbekannte Aktion")
-    except docker.errors.APIError as e:
-        raise HTTPException(status_code=500, detail=str(e.explanation or e))
+    except docker.errors.APIError as docker_err:
+        raise HTTPException(status_code=500, detail=str(docker_err.explanation or docker_err)) from docker_err
     return {"ok": True}
 
 
 @app.get("/api/stacks")
 def api_stacks(request: Request):
+    """List all stacks (subdirectories with a docker-compose.yaml) in STACKS_DIR."""
     require_auth(request)
     os.makedirs(STACKS_DIR, exist_ok=True)
     result = []
     try:
         for name in sorted(os.listdir(STACKS_DIR)):
-            d = os.path.join(STACKS_DIR, name)
-            if os.path.isdir(d) and os.path.isfile(os.path.join(d, "docker-compose.yaml")):
+            stack_dir = os.path.join(STACKS_DIR, name)
+            if os.path.isdir(stack_dir) and os.path.isfile(os.path.join(stack_dir, "docker-compose.yaml")):
                 result.append({"name": name})
-    except Exception:
+    except OSError:
         pass
     return JSONResponse(result)
 
 
 @app.get("/api/stacks/{name}/file")
 def api_stack_get(name: str, request: Request):
+    """Return the docker-compose.yaml content for the given stack."""
     require_auth(request)
     cf = os.path.join(_stack_dir(name), "docker-compose.yaml")
     if not os.path.isfile(cf):
@@ -1255,7 +1270,8 @@ function render(list){
       if(ia<0&&ib<0)return 0;if(ia<0)return 1;if(ib<0)return -1;return ia-ib;
     });
     return `<div class="group-section" draggable="true" data-stack="${g}">
-      <div class="group-hdr"><span class="dot ${dot}"></span><span>${label}</span><span style="margin-left:auto;font-size:.68rem;color:#4a6a8a;font-weight:400;text-transform:none;letter-spacing:0">${run}/${total} aktiv</span></div>
+      <div class="group-hdr"><span class="dot ${dot}"></span><span>${label}</span>` +
+      `<span style="margin-left:auto;font-size:.68rem;color:#4a6a8a;font-weight:400;text-transform:none;letter-spacing:0">${run}/${total} aktiv</span></div>
       <div class="ccard-grid" data-group="${g}">${sorted.map(renderCard).join('')}</div></div>`;
   }).join('');
   const CARD_W=230,GAP=12,PAD=35;
