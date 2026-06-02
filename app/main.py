@@ -1,6 +1,7 @@
 import datetime
 import hashlib
 import hmac
+import html
 import json
 import os
 import re
@@ -309,7 +310,11 @@ def host_stats():
 def _stack_dir(name: str) -> str:
     if not SAFE_NAME.match(name):
         raise HTTPException(status_code=400, detail="Ungültiger Stack-Name (nur a-z, 0-9, - und _)")
-    return os.path.join(STACKS_DIR, name)
+    stack_path = os.path.realpath(os.path.join(STACKS_DIR, name))
+    stacks_root = os.path.realpath(STACKS_DIR)
+    if not stack_path.startswith(stacks_root + os.sep):
+        raise HTTPException(status_code=400, detail="Ungültiger Pfad")
+    return stack_path
 
 
 def _run_compose(name: str, *args, timeout: int = 300) -> dict:
@@ -400,9 +405,6 @@ def setup_generate_cert():
         f.write(ca_cert.public_bytes(serialization.Encoding.PEM))
     with open(os.path.join(CERTS_DIR, "client.p12"), "wb") as f:
         f.write(p12_data)
-    with open(os.path.join(CERTS_DIR, "p12-password.txt"), "w") as f:
-        f.write(p12_password)
-
     return {"ok": True, "p12_password": p12_password}
 
 
@@ -508,7 +510,7 @@ def login_page(error: str = ""):
     """Render login page; redirect to setup wizard if not yet configured."""
     if needs_setup():
         return RedirectResponse(url="/setup", status_code=303)
-    return LOGIN_HTML.replace("{{ERROR}}", error)
+    return LOGIN_HTML.replace("{{ERROR}}", html.escape(error))
 
 
 @app.post("/login")
