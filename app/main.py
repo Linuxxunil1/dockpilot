@@ -8,6 +8,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -266,6 +267,82 @@ def _devices(devs):
     if not devs:
         return None
     return [f"{d['PathOnHost']}:{d['PathInContainer']}:{d.get('CgroupPermissions','rwm')}" for d in devs]
+
+
+# ----------------------------- Self-Update -----------------------------
+_UPDATE_STATE: dict = {
+    "checking": False,
+    "update_available": False,
+    "current_digest": None,
+    "remote_digest": None,
+    "last_check": None,
+    "error": None,
+    "image_ref": None,
+}
+
+
+def _self_container_id() -> str | None:
+    try:
+        with open("/proc/self/cgroup") as f:
+            for line in f:
+                parts = line.strip().split(":")
+                if len(parts) >= 3 and "/docker/" in parts[2]:
+                    cid = parts[2].split("/docker/")[-1]
+                    if len(cid) >= 12:
+                        return cid[:12]
+    except OSError:
+        pass
+    try:
+        with open("/proc/self/mountinfo") as f:
+            for line in f:
+                if "/docker/containers/" in line:
+                    cid = line.split("/docker/containers/")[1].split("/")[0]
+                    if len(cid) >= 12:
+                        return cid[:12]
+    except OSError:
+        pass
+    return None
+
+
+def _do_check_update():
+    _UPDATE_STATE["checking"] = True
+    _UPDATE_STATE["error"] = None
+    try:
+        cid = _self_container_id()
+        if not cid:
+            _UPDATE_STATE["error"] = "Eigener Container nicht erkannt"
+            return
+        try:
+            c = client.containers.get(cid)
+        except docker.errors.NotFound:
+            _UPDATE_STATE["error"] = "Container nicht gefunden"
+            return
+        image_ref = c.attrs["Config"]["Image"]
+        _UPDATE_STATE["image_ref"] = image_ref
+        local_img = client.images.get(image_ref)
+        local_digests = {rd.split("@")[-1] for rd in local_img.attrs.get("RepoDigests", [])}
+        reg_data = client.images.get_registry_data(image_ref)
+        remote_digest = reg_data.id
+        _UPDATE_STATE["current_digest"] = next(iter(local_digests), None)
+        _UPDATE_STATE["remote_digest"] = remote_digest
+        _UPDATE_STATE["update_available"] = bool(remote_digest and remote_digest not in local_digests)
+        _UPDATE_STATE["last_check"] = time.time()
+    except Exception as exc:
+        _UPDATE_STATE["error"] = str(exc)
+    finally:
+        _UPDATE_STATE["checking"] = False
+
+
+def _update_scheduler():
+    while True:
+        try:
+            _do_check_update()
+        except Exception:
+            pass
+        time.sleep(8 * 3600)
+
+
+threading.Thread(target=_update_scheduler, daemon=True).start()
 
 
 # ----------------------------- Host-Statistik -----------------------------
@@ -863,6 +940,39 @@ def api_images_prune(request: Request):
     return {"deleted": deleted, "freed": freed}
 
 
+@app.get("/api/self/update")
+def api_self_update_status(request: Request):
+    require_auth(request)
+    return JSONResponse(_UPDATE_STATE)
+
+
+@app.post("/api/self/update/check")
+def api_self_update_check(request: Request):
+    require_auth(request)
+    if not _UPDATE_STATE["checking"]:
+        threading.Thread(target=_do_check_update, daemon=True).start()
+    return {"ok": True}
+
+
+@app.post("/api/self/update/apply")
+def api_self_update_apply(request: Request):
+    require_auth(request)
+    cid = _self_container_id()
+    if not cid:
+        raise HTTPException(status_code=500, detail="Eigener Container nicht erkannt")
+    try:
+        c = client.containers.get(cid)
+    except docker.errors.NotFound:
+        raise HTTPException(status_code=404, detail="Container nicht gefunden")
+
+    def _apply():
+        time.sleep(0.5)
+        recreate_with_new_image(c)
+
+    threading.Thread(target=_apply, daemon=True).start()
+    return {"ok": True}
+
+
 # ----------------------------- Templates -----------------------------
 SETUP_HTML = """<!doctype html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1278,6 +1388,13 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
 .badge-unused{font-size:.67rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
   background:rgba(100,116,139,.1);color:#3a5a7a;border-radius:5px;padding:.2rem .45rem}
 .b-img-del{background:linear-gradient(135deg,#7f1d1d,#ef4444);font-size:.72rem;padding:.3rem .6rem}
+
+.update-badge{background:linear-gradient(135deg,#166534,#16a34a);color:#fff;border:0;
+  border-radius:7px;padding:.35rem .8rem;cursor:pointer;font-size:.78rem;font-weight:600;
+  letter-spacing:.01em;animation:pulse-upd 2.5s ease-in-out infinite}
+@keyframes pulse-upd{0%,100%{box-shadow:0 0 0 0 rgba(34,197,94,.5)}
+  50%{box-shadow:0 0 0 6px rgba(34,197,94,.0)}}
+.update-badge:hover{filter:brightness(1.15)}
 </style></head><body>
 
 <!-- Token / Registry Modal -->
@@ -1348,6 +1465,7 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
   <div class="logo">🐳 dock<span>pilot</span></div>
   <div class="right">
     <span id="meta"></span>
+    <button id="update-badge" class="update-badge" style="display:none" onclick="applyUpdate()">↑ Update verfügbar</button>
     <form method="post" action="/logout"><button class="hbtn">Logout</button></form>
   </div>
 </header>
@@ -1601,6 +1719,7 @@ async function load(){try{const r=await fetch('/api/containers');
 load();setInterval(load,5000);
 loadSizes();setInterval(loadSizes,30000);
 loadHost();setInterval(loadHost,5000);
+loadUpdateStatus();setInterval(loadUpdateStatus,60000);
 window.addEventListener('resize',()=>render(last));
 
 let currentStack=null;
@@ -1858,5 +1977,25 @@ async function pruneImages(){
     r.ok?toast(`${j.deleted} Images entfernt · ${fmtBytes(j.freed)} freigegeben`):toast('Fehler: '+(j.detail||r.status),true);
   }catch(e){toast('Fehler: '+e,true)}
   loadImages();
+}
+
+async function loadUpdateStatus(){
+  try{
+    const r=await fetch('/api/self/update');
+    if(!r.ok)return;
+    const s=await r.json();
+    const badge=document.getElementById('update-badge');
+    badge.style.display=s.update_available?'':'none';
+    badge.title=s.image_ref?`Image: ${s.image_ref}${s.last_check?` · Geprüft: ${new Date(s.last_check*1000).toLocaleTimeString()}`:''}`:'';
+  }catch(e){}
+}
+async function applyUpdate(){
+  if(!confirm('DockPilot jetzt auf die neueste Version aktualisieren?\n\nDer Container wird kurz neu gestartet — die Verbindung trennt sich für ~5 Sekunden.'))return;
+  try{
+    const r=await fetch('/api/self/update/apply',{method:'POST'});
+    const j=await r.json().catch(()=>({}));
+    r.ok?toast('Update gestartet — Seite lädt gleich neu…'):toast('Fehler: '+(j.detail||r.status),true);
+    if(r.ok)setTimeout(()=>location.reload(),8000);
+  }catch(e){toast('Fehler: '+e,true)}
 }
 </script></body></html>"""
