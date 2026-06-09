@@ -824,6 +824,45 @@ def api_registry_delete(registry: str, request: Request):
     return {"ok": True}
 
 
+@app.get("/api/images")
+def api_images(request: Request):
+    require_auth(request)
+    used_ids = {c.image.id for c in client.containers.list(all=True)}
+    images = []
+    for img in client.images.list(all=False):
+        images.append({
+            "id": img.id,
+            "short_id": img.id.replace("sha256:", "")[:12],
+            "tags": img.tags,
+            "size": img.attrs.get("Size", 0),
+            "created": img.attrs.get("Created", ""),
+            "in_use": img.id in used_ids,
+        })
+    images.sort(key=lambda i: (not i["in_use"], i["tags"][0] if i["tags"] else "\xff"))
+    return JSONResponse(images)
+
+
+@app.delete("/api/images/{image_id:path}")
+def api_image_delete(image_id: str, request: Request):
+    require_auth(request)
+    try:
+        client.images.remove(image_id, force=False)
+    except docker.errors.ImageNotFound:
+        raise HTTPException(status_code=404, detail="Image nicht gefunden")
+    except docker.errors.APIError as e:
+        raise HTTPException(status_code=409, detail=str(e.explanation or e))
+    return {"ok": True}
+
+
+@app.post("/api/images/prune")
+def api_images_prune(request: Request):
+    require_auth(request)
+    result = client.images.prune(filters={"dangling": False})
+    freed = result.get("SpaceReclaimed", 0)
+    deleted = len(result.get("ImagesDeleted") or [])
+    return {"deleted": deleted, "freed": freed}
+
+
 # ----------------------------- Templates -----------------------------
 SETUP_HTML = """<!doctype html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1222,6 +1261,23 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
 .token-row span{color:#8eafd4}
 .token-row button{border:0;background:rgba(239,68,68,.15);color:#f87171;border-radius:5px;padding:.22rem .55rem;font-size:.75rem;cursor:pointer}
 .token-row button:hover{background:rgba(239,68,68,.28)}
+
+.img-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:.75rem}
+.icard{background:linear-gradient(150deg,#0d1929,#0b1623);border:1px solid #182a45;
+  border-radius:13px;padding:.95rem 1rem;transition:border-color .2s}
+.icard:hover{border-color:#2a4060}
+.icard-tags{font-weight:600;color:#e8f2ff;font-size:.85rem;margin-bottom:.2rem;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.icard-tag-none{color:#3a5a7a;font-style:italic}
+.icard-id{color:#3a5a7a;font-size:.68rem;font-family:ui-monospace,monospace;margin-bottom:.55rem}
+.icard-meta{display:flex;justify-content:space-between;font-size:.72rem;color:#4a6a8a;margin-bottom:.6rem}
+.icard-footer{display:flex;align-items:center;justify-content:space-between;
+  padding-top:.6rem;border-top:1px solid #0d1929}
+.badge-used{font-size:.67rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  background:rgba(34,197,94,.12);color:#4ade80;border-radius:5px;padding:.2rem .45rem}
+.badge-unused{font-size:.67rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  background:rgba(100,116,139,.1);color:#3a5a7a;border-radius:5px;padding:.2rem .45rem}
+.b-img-del{background:linear-gradient(135deg,#7f1d1d,#ef4444);font-size:.72rem;padding:.3rem .6rem}
 </style></head><body>
 
 <!-- Token / Registry Modal -->
@@ -1298,6 +1354,7 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
 <div class="tabs">
   <button class="tab active" onclick="switchTab('containers')" id="tab-containers">Container</button>
   <button class="tab" onclick="switchTab('stacks')" id="tab-stacks">Stacks</button>
+  <button class="tab" onclick="switchTab('images')" id="tab-images">Images</button>
 </div>
 <main>
 
@@ -1329,6 +1386,14 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
   </div>
 </div>
 
+<div id="view-images" style="display:none">
+  <div style="display:flex;gap:.75rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap">
+    <button class="tbtn b-del" onclick="pruneImages()">🗑 Ungenutzte aufräumen</button>
+    <span id="img-meta" style="font-size:.78rem;color:#4a6a8a"></span>
+  </div>
+  <div id="img-grid" class="img-grid"><div class="empty-state">lädt…</div></div>
+</div>
+
 </main>
 <div id="toast"></div>
 <script>
@@ -1350,9 +1415,12 @@ function switchTab(tab){
   activeTab=tab;
   document.getElementById('view-containers').style.display=tab==='containers'?'':'none';
   document.getElementById('view-stacks').style.display=tab==='stacks'?'':'none';
+  document.getElementById('view-images').style.display=tab==='images'?'':'none';
   document.getElementById('tab-containers').classList.toggle('active',tab==='containers');
   document.getElementById('tab-stacks').classList.toggle('active',tab==='stacks');
+  document.getElementById('tab-images').classList.toggle('active',tab==='images');
   if(tab==='stacks')loadStacks();
+  if(tab==='images')loadImages();
 }
 
 let busy={},sz={},last=[];
@@ -1526,6 +1594,7 @@ async function load(){try{const r=await fetch('/api/containers');
   if(r.status===401){location.href='/login';return}
   const list=await r.json();render(list);
   if(activeTab==='stacks')loadStacks();
+  if(activeTab==='images')loadImages();
   const up=list.filter(c=>c.running).length;
   document.getElementById('meta').textContent=`${up} / ${list.length} aktiv`;
 }catch(e){document.getElementById('meta').textContent='Verbindungsfehler'}}
@@ -1744,5 +1813,50 @@ async function doImport(){
     if(r.ok){closeImportDialog();toast(`"${name}" importiert`);loadStacks();}
     else{err.textContent=j.detail||'Fehler';btn.disabled=false;btn.textContent='Importieren';}
   }catch(e){err.textContent='Netzwerkfehler: '+e.message;btn.disabled=false;btn.textContent='Importieren';}
+}
+
+const fmtAgo=s=>{if(!s)return '–';const ms=Date.now()-new Date(s);const h=Math.floor(ms/3600000);if(h<24)return h+'h';const d=Math.floor(ms/86400000);return d+'d'};
+async function loadImages(){
+  try{
+    const r=await fetch('/api/images');
+    if(r.status===401){location.href='/login';return}
+    const imgs=await r.json();
+    const grid=document.getElementById('img-grid');
+    const unused=imgs.filter(i=>!i.in_use).length;
+    const total=imgs.length;
+    document.getElementById('img-meta').textContent=`${total} Images · ${unused} ungenutzt`;
+    if(!imgs.length){grid.innerHTML='<div class="empty-state">Keine Images gefunden</div>';return}
+    grid.innerHTML=imgs.map(i=>{
+      const tag=i.tags.length?i.tags.join(', '):'<span class="icard-tag-none">&lt;none&gt;</span>';
+      const badge=i.in_use
+        ?'<span class="badge-used">In Verwendung</span>'
+        :'<span class="badge-unused">Ungenutzt</span>';
+      const delBtn=i.in_use?'':`<button class="tbtn b-img-del" onclick="deleteImage('${i.id}','${i.tags[0]||i.short_id}')">✕</button>`;
+      return `<div class="icard">
+        <div class="icard-tags">${tag}</div>
+        <div class="icard-id">${i.short_id}</div>
+        <div class="icard-meta"><span>${fmtBytes(i.size)}</span><span>vor ${fmtAgo(i.created)}</span></div>
+        <div class="icard-footer">${badge}${delBtn}</div>
+      </div>`;
+    }).join('');
+  }catch(e){}
+}
+async function deleteImage(id,label){
+  if(!confirm(`Image "${label}" löschen?`))return;
+  try{
+    const r=await fetch('/api/images/'+encodeURIComponent(id),{method:'DELETE'});
+    const j=await r.json().catch(()=>({}));
+    r.ok?toast('Image gelöscht'):toast('Fehler: '+(j.detail||r.status),true);
+  }catch(e){toast('Fehler: '+e,true)}
+  loadImages();
+}
+async function pruneImages(){
+  if(!confirm('Alle ungenutzten Images löschen?'))return;
+  try{
+    const r=await fetch('/api/images/prune',{method:'POST'});
+    const j=await r.json().catch(()=>({}));
+    r.ok?toast(`${j.deleted} Images entfernt · ${fmtBytes(j.freed)} freigegeben`):toast('Fehler: '+(j.detail||r.status),true);
+  }catch(e){toast('Fehler: '+e,true)}
+  loadImages();
 }
 </script></body></html>"""
