@@ -1525,6 +1525,7 @@ function render(list){
 async function load(){try{const r=await fetch('/api/containers');
   if(r.status===401){location.href='/login';return}
   const list=await r.json();render(list);
+  if(activeTab==='stacks')loadStacks();
   const up=list.filter(c=>c.running).length;
   document.getElementById('meta').textContent=`${up} / ${list.length} aktiv`;
 }catch(e){document.getElementById('meta').textContent='Verbindungsfehler'}}
