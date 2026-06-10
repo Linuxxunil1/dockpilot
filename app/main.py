@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.x509.oid import NameOID
-from fastapi import FastAPI, Form, HTTPException, Request, Response
+from fastapi import FastAPI, Form, HTTPException, Request, Response, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 STACKS_DIR = os.environ.get("STACKS_DIR", "/opt/dockpilot/stacks")
