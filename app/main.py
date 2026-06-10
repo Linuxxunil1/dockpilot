@@ -763,7 +763,7 @@ async def api_stack_save(name: str, request: Request):
 @app.post("/api/stacks/{name}/up")
 def api_stack_up(name: str, request: Request):
     require_auth(request)
-    res = _run_compose(name, "up", "-d", "--pull", "always", timeout=300)
+    res = _run_compose(name, "up", "-d", timeout=300)
     if not res["ok"]:
         raise HTTPException(status_code=500, detail=res["out"])
     return res
