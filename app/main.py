@@ -1034,26 +1034,36 @@ def api_self_update_apply(request: Request):
 
 @app.websocket("/ws/console")
 async def ws_console(websocket: WebSocket):
+    await websocket.accept()
     token = websocket.cookies.get(COOKIE)
     if not valid_token(token):
         await websocket.close(code=4001)
         return
-    await websocket.accept()
 
-    master_fd, slave_fd = pty.openpty()
-    fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
-    proc = subprocess.Popen(
-        ["/bin/bash", "-l"],
-        stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
-        close_fds=True, preexec_fn=os.setsid,
-        env={**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"},
-    )
-    os.close(slave_fd)
+    shell = "/bin/bash" if os.path.exists("/bin/bash") else "/bin/sh"
+    try:
+        master_fd, slave_fd = pty.openpty()
+        fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
+        proc = subprocess.Popen(
+            [shell, "-l"],
+            stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
+            close_fds=True, preexec_fn=os.setsid,
+            env={**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"},
+        )
+        os.close(slave_fd)
+    except Exception as exc:
+        await websocket.send_text(f"\r\n\x1b[31m[Terminal-Fehler: {exc}]\x1b[0m\r\n")
+        await websocket.close()
+        return
+
     loop = asyncio.get_running_loop()
 
     async def pty_to_ws():
         while True:
-            ready, _, _ = await loop.run_in_executor(None, select.select, [master_fd], [], [], 0.05)
+            try:
+                ready, _, _ = await loop.run_in_executor(None, select.select, [master_fd], [], [], 0.05)
+            except OSError:
+                break
             if ready:
                 try:
                     data = os.read(master_fd, 4096)
@@ -1088,17 +1098,24 @@ async def ws_console(websocket: WebSocket):
 
     read_task = asyncio.create_task(pty_to_ws())
     write_task = asyncio.create_task(ws_to_pty())
-    _, pending = await asyncio.wait([read_task, write_task], return_when=asyncio.FIRST_COMPLETED)
-    for t in pending:
-        t.cancel()
     try:
-        proc.terminate()
-    except ProcessLookupError:
-        pass
-    try:
-        os.close(master_fd)
-    except OSError:
-        pass
+        _, pending = await asyncio.wait([read_task, write_task], return_when=asyncio.FIRST_COMPLETED)
+        for t in pending:
+            t.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+    finally:
+        try:
+            proc.terminate()
+            proc.wait(timeout=2)
+        except (ProcessLookupError, subprocess.TimeoutExpired):
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+        try:
+            os.close(master_fd)
+        except OSError:
+            pass
 
 
 # ----------------------------- Templates -----------------------------
@@ -2233,14 +2250,20 @@ function _loadXterm(cb){
   css.rel='stylesheet';
   css.href='https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css';
   document.head.appendChild(css);
-  function loadScript(src,next){
+  function loadScript(src,next,onerr){
     const s=document.createElement('script');
-    s.src=src;s.onload=next;document.head.appendChild(s);
+    s.src=src;s.onload=next;
+    s.onerror=()=>onerr&&onerr(src);
+    document.head.appendChild(s);
   }
   loadScript('https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js',()=>{
     loadScript('https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js',()=>{
       _xtermLoaded=true;cb();
+    },(src)=>{
+      toast('Konsole: xterm-addon-fit konnte nicht geladen werden (CDN erreichbar?)',true);
     });
+  },(src)=>{
+    toast('Konsole: xterm.js konnte nicht geladen werden (CDN erreichbar?)',true);
   });
 }
 
@@ -2268,6 +2291,9 @@ function initConsole(){
     _term.onResize(({cols,rows})=>{
       if(_ws&&_ws.readyState===WebSocket.OPEN)
         _ws.send(JSON.stringify({type:'resize',cols,rows}));
+    });
+    _term.onData(data=>{
+      if(_ws&&_ws.readyState===WebSocket.OPEN)_ws.send(data);
     });
     connectConsole();
   });
@@ -2306,8 +2332,5 @@ function connectConsole(){
     status.textContent='● Fehler';status.style.color='#ff7b72';
     if(_term)_term.write('\\r\\n\\x1b[31m[WebSocket-Fehler]\\x1b[0m\\r\\n');
   };
-  _term.onData(data=>{
-    if(_ws&&_ws.readyState===WebSocket.OPEN)_ws.send(data);
-  });
 }
 </script></body></html>"""
