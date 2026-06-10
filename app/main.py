@@ -1032,6 +1032,75 @@ def api_self_update_apply(request: Request):
     return {"ok": True}
 
 
+@app.websocket("/ws/console")
+async def ws_console(websocket: WebSocket):
+    token = websocket.cookies.get(COOKIE)
+    if not valid_token(token):
+        await websocket.close(code=4001)
+        return
+    await websocket.accept()
+
+    master_fd, slave_fd = pty.openpty()
+    fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
+    proc = subprocess.Popen(
+        ["/bin/bash", "-l"],
+        stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
+        close_fds=True, preexec_fn=os.setsid,
+        env={**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"},
+    )
+    os.close(slave_fd)
+    loop = asyncio.get_running_loop()
+
+    async def pty_to_ws():
+        while True:
+            ready, _, _ = await loop.run_in_executor(None, select.select, [master_fd], [], [], 0.05)
+            if ready:
+                try:
+                    data = os.read(master_fd, 4096)
+                except OSError:
+                    break
+                try:
+                    await websocket.send_bytes(data)
+                except Exception:
+                    break
+            if proc.poll() is not None:
+                break
+
+    async def ws_to_pty():
+        while True:
+            try:
+                msg = await websocket.receive_text()
+            except Exception:
+                break
+            try:
+                payload = json.loads(msg)
+                if payload.get("type") == "resize":
+                    cols = int(payload.get("cols", 80))
+                    rows = int(payload.get("rows", 24))
+                    fcntl.ioctl(master_fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+                    continue
+            except (json.JSONDecodeError, ValueError):
+                pass
+            try:
+                os.write(master_fd, msg.encode())
+            except OSError:
+                break
+
+    read_task = asyncio.create_task(pty_to_ws())
+    write_task = asyncio.create_task(ws_to_pty())
+    _, pending = await asyncio.wait([read_task, write_task], return_when=asyncio.FIRST_COMPLETED)
+    for t in pending:
+        t.cancel()
+    try:
+        proc.terminate()
+    except ProcessLookupError:
+        pass
+    try:
+        os.close(master_fd)
+    except OSError:
+        pass
+
+
 # ----------------------------- Templates -----------------------------
 SETUP_HTML = """<!doctype html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1467,6 +1536,12 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
 @keyframes pulse-upd{0%,100%{box-shadow:0 0 0 0 rgba(34,197,94,.5)}
   50%{box-shadow:0 0 0 6px rgba(34,197,94,.0)}}
 .update-badge:hover{filter:brightness(1.15)}
+
+#view-konsole{margin:-1.5rem -1.75rem;height:calc(100vh - 95px);display:flex;flex-direction:column}
+.konsole-bar{display:flex;align-items:center;gap:.5rem;padding:.55rem 1.25rem;
+  background:#070d1a;border-bottom:1px solid #182a45}
+.konsole-bar span{font-size:.72rem;color:#3a5a7a}
+#console-term{flex:1;min-height:0}
 </style></head><body>
 
 <!-- Token / Registry Modal -->
@@ -1545,6 +1620,7 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
   <button class="tab active" onclick="switchTab('containers')" id="tab-containers">Container</button>
   <button class="tab" onclick="switchTab('stacks')" id="tab-stacks">Stacks</button>
   <button class="tab" onclick="switchTab('wartung')" id="tab-wartung">Wartung</button>
+  <button class="tab" onclick="switchTab('konsole')" id="tab-konsole">Konsole</button>
 </div>
 <main>
 
@@ -1604,6 +1680,14 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
   </div>
 </div>
 
+<div id="view-konsole" style="display:none">
+  <div class="konsole-bar">
+    <span id="konsole-status">● Nicht verbunden</span>
+    <button class="tbtn" id="konsole-reconnect" style="display:none;background:linear-gradient(135deg,#1e3a8a,#3b82f6);font-size:.72rem;padding:.28rem .6rem" onclick="connectConsole()">↺ Neu verbinden</button>
+  </div>
+  <div id="console-term"></div>
+</div>
+
 </main>
 <div id="toast"></div>
 <script>
@@ -1623,17 +1707,16 @@ return `<div class="card"><div class="lbl">${lbl}</div><div class="val">${val}</
 let activeTab='containers',activeWartungTab='images';
 function switchTab(tab){
   activeTab=tab;
-  document.getElementById('view-containers').style.display=tab==='containers'?'':'none';
-  document.getElementById('view-stacks').style.display=tab==='stacks'?'':'none';
-  document.getElementById('view-wartung').style.display=tab==='wartung'?'':'none';
-  document.getElementById('tab-containers').classList.toggle('active',tab==='containers');
-  document.getElementById('tab-stacks').classList.toggle('active',tab==='stacks');
-  document.getElementById('tab-wartung').classList.toggle('active',tab==='wartung');
+  ['containers','stacks','wartung','konsole'].forEach(t=>{
+    document.getElementById('view-'+t).style.display=tab===t?'':'none';
+    document.getElementById('tab-'+t).classList.toggle('active',tab===t);
+  });
   if(tab==='stacks')loadStacks();
   if(tab==='wartung'){
     if(activeWartungTab==='images')loadImages();
     else loadUpdateStatus();
   }
+  if(tab==='konsole')initConsole();
 }
 function switchWartungTab(sub){
   activeWartungTab=sub;
