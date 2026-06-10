@@ -1389,6 +1389,19 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
   background:rgba(100,116,139,.1);color:#3a5a7a;border-radius:5px;padding:.2rem .45rem}
 .b-img-del{background:linear-gradient(135deg,#7f1d1d,#ef4444);font-size:.72rem;padding:.3rem .6rem}
 
+.subtabs{display:flex;gap:.35rem;margin-bottom:1.25rem;padding-bottom:.85rem;border-bottom:1px solid #182a45}
+.subtab{padding:.42rem 1rem;border:1px solid #182a45;border-radius:8px;background:0;
+  color:#3a5a7a;cursor:pointer;font-size:.82rem;font-weight:500;transition:all .15s}
+.subtab:hover{color:#8eafd4;border-color:#2a4060}
+.subtab.active{background:linear-gradient(135deg,#1e3a8a,#3b82f6);color:#fff;border-color:transparent}
+.upd-card{background:linear-gradient(150deg,#0d1929,#0b1623);border:1px solid #182a45;
+  border-radius:13px;padding:1.2rem 1.35rem;max-width:520px}
+.upd-row{display:flex;justify-content:space-between;align-items:center;font-size:.82rem;
+  padding:.32rem 0;border-bottom:1px solid #0a1520}
+.upd-row:last-child{border-bottom:0}
+.upd-row span:first-child{color:#4a6a8a;font-weight:500}
+.upd-row span:last-child{color:#8eafd4;text-align:right;max-width:70%;word-break:break-all}
+
 .update-badge{background:linear-gradient(135deg,#166534,#16a34a);color:#fff;border:0;
   border-radius:7px;padding:.35rem .8rem;cursor:pointer;font-size:.78rem;font-weight:600;
   letter-spacing:.01em;animation:pulse-upd 2.5s ease-in-out infinite}
@@ -1465,15 +1478,14 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
   <div class="logo">🐳 dock<span>pilot</span></div>
   <div class="right">
     <span id="meta"></span>
-    <button id="check-update-btn" class="hbtn" onclick="checkForUpdate()" title="Manuell nach Updates suchen">↻ Update prüfen</button>
-    <button id="update-badge" class="update-badge" style="display:none" onclick="applyUpdate()">↑ Update verfügbar</button>
+    <button id="update-badge" class="update-badge" style="display:none" onclick="switchTab('wartung');switchWartungTab('update')">↑ Update verfügbar</button>
     <form method="post" action="/logout"><button class="hbtn">Logout</button></form>
   </div>
 </header>
 <div class="tabs">
   <button class="tab active" onclick="switchTab('containers')" id="tab-containers">Container</button>
   <button class="tab" onclick="switchTab('stacks')" id="tab-stacks">Stacks</button>
-  <button class="tab" onclick="switchTab('images')" id="tab-images">Images</button>
+  <button class="tab" onclick="switchTab('wartung')" id="tab-wartung">Wartung</button>
 </div>
 <main>
 
@@ -1505,12 +1517,32 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
   </div>
 </div>
 
-<div id="view-images" style="display:none">
-  <div style="display:flex;gap:.75rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap">
-    <button class="tbtn b-del" onclick="pruneImages()">🗑 Ungenutzte aufräumen</button>
-    <span id="img-meta" style="font-size:.78rem;color:#4a6a8a"></span>
+<div id="view-wartung" style="display:none">
+  <div class="subtabs">
+    <button class="subtab active" id="subtab-images" onclick="switchWartungTab('images')">Images</button>
+    <button class="subtab" id="subtab-update" onclick="switchWartungTab('update')">Self-Update</button>
   </div>
-  <div id="img-grid" class="img-grid"><div class="empty-state">lädt…</div></div>
+
+  <div id="wartung-images">
+    <div style="display:flex;gap:.75rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap">
+      <button class="tbtn b-del" onclick="pruneImages()">🗑 Ungenutzte aufräumen</button>
+      <span id="img-meta" style="font-size:.78rem;color:#4a6a8a"></span>
+    </div>
+    <div id="img-grid" class="img-grid"><div class="empty-state">lädt…</div></div>
+  </div>
+
+  <div id="wartung-update" style="display:none">
+    <div class="upd-card">
+      <div style="font-size:.78rem;color:#4a6a8a;margin-bottom:1rem">DockPilot aktualisiert sich selbst durch Neuerstellung des eigenen Containers. Der Dienst ist dabei kurz (~5 Sek.) nicht erreichbar.</div>
+      <div class="upd-row"><span>Image</span><span id="upd-image">–</span></div>
+      <div class="upd-row"><span>Letzte Prüfung</span><span id="upd-lastcheck">–</span></div>
+      <div class="upd-row"><span>Status</span><span id="upd-status">–</span></div>
+      <div style="display:flex;gap:.5rem;margin-top:1.1rem;flex-wrap:wrap">
+        <button id="check-update-btn" class="tbtn" style="background:linear-gradient(135deg,#1e293b,#334155)" onclick="checkForUpdate()">↻ Update prüfen</button>
+        <button id="apply-update-btn" class="tbtn update-badge" style="display:none" onclick="applyUpdate()">↑ Update installieren</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 </main>
@@ -1529,17 +1561,29 @@ const g=p>90?'linear-gradient(90deg,#991b1b,#f87171)':p>75?'linear-gradient(90de
 return `<div class="card"><div class="lbl">${lbl}</div><div class="val">${val}</div>
 <div class="sub">${sub}</div><div class="bar2"><i style="width:${p}%;background:${g}"></i></div></div>`}
 
-let activeTab='containers';
+let activeTab='containers',activeWartungTab='images';
 function switchTab(tab){
   activeTab=tab;
   document.getElementById('view-containers').style.display=tab==='containers'?'':'none';
   document.getElementById('view-stacks').style.display=tab==='stacks'?'':'none';
-  document.getElementById('view-images').style.display=tab==='images'?'':'none';
+  document.getElementById('view-wartung').style.display=tab==='wartung'?'':'none';
   document.getElementById('tab-containers').classList.toggle('active',tab==='containers');
   document.getElementById('tab-stacks').classList.toggle('active',tab==='stacks');
-  document.getElementById('tab-images').classList.toggle('active',tab==='images');
+  document.getElementById('tab-wartung').classList.toggle('active',tab==='wartung');
   if(tab==='stacks')loadStacks();
-  if(tab==='images')loadImages();
+  if(tab==='wartung'){
+    if(activeWartungTab==='images')loadImages();
+    else loadUpdateStatus();
+  }
+}
+function switchWartungTab(sub){
+  activeWartungTab=sub;
+  document.getElementById('wartung-images').style.display=sub==='images'?'':'none';
+  document.getElementById('wartung-update').style.display=sub==='update'?'':'none';
+  document.getElementById('subtab-images').classList.toggle('active',sub==='images');
+  document.getElementById('subtab-update').classList.toggle('active',sub==='update');
+  if(sub==='images')loadImages();
+  if(sub==='update')loadUpdateStatus();
 }
 
 let busy={},sz={},last=[];
@@ -1713,7 +1757,7 @@ async function load(){try{const r=await fetch('/api/containers');
   if(r.status===401){location.href='/login';return}
   const list=await r.json();render(list);
   if(activeTab==='stacks')loadStacks();
-  if(activeTab==='images')loadImages();
+  if(activeTab==='wartung'&&activeWartungTab==='images')loadImages();
   const up=list.filter(c=>c.running).length;
   document.getElementById('meta').textContent=`${up} / ${list.length} aktiv`;
 }catch(e){document.getElementById('meta').textContent='Verbindungsfehler'}}
@@ -1985,12 +2029,24 @@ async function loadUpdateStatus(){
     const r=await fetch('/api/self/update');
     if(!r.ok)return;
     const s=await r.json();
+    // Header badge
     const badge=document.getElementById('update-badge');
-    badge.style.display=s.update_available?'':'none';
-    badge.title=s.image_ref?`Image: ${s.image_ref}${s.last_check?` · Geprüft: ${new Date(s.last_check*1000).toLocaleTimeString()}`:''}`:'';
-    const btn=document.getElementById('check-update-btn');
-    if(btn&&!btn.disabled){
-      btn.title=s.last_check?`Zuletzt geprüft: ${new Date(s.last_check*1000).toLocaleTimeString()}`+(s.error?` · Fehler: ${s.error}`:''):'Noch nicht geprüft';
+    if(badge)badge.style.display=s.update_available?'':'none';
+    // Apply button inside panel
+    const applyBtn=document.getElementById('apply-update-btn');
+    if(applyBtn)applyBtn.style.display=s.update_available?'':'none';
+    // Info card
+    const img=document.getElementById('upd-image');
+    const lc=document.getElementById('upd-lastcheck');
+    const st=document.getElementById('upd-status');
+    if(img)img.textContent=s.image_ref||'–';
+    if(lc)lc.textContent=s.last_check?new Date(s.last_check*1000).toLocaleString():'Noch nicht geprüft';
+    if(st){
+      if(s.checking)st.textContent='Prüft…';
+      else if(s.error)st.textContent='Fehler: '+s.error;
+      else if(s.last_check===null)st.textContent='–';
+      else if(s.update_available)st.textContent='Update verfügbar';
+      else st.textContent='Aktuell';
     }
   }catch(e){}
 }
@@ -2006,10 +2062,9 @@ async function checkForUpdate(){
       if(!r.ok)break;
       const s=await r.json();
       if(!s.checking){
-        const badge=document.getElementById('update-badge');
-        badge.style.display=s.update_available?'':'none';
+        loadUpdateStatus();
         if(s.error)toast('Update-Check fehlgeschlagen: '+s.error,true);
-        else if(s.update_available)toast('Update verfügbar! Klick auf den grünen Button zum Installieren.');
+        else if(s.update_available)toast('Update verfügbar! Klick auf "Update installieren".');
         else toast('Kein Update verfügbar — DockPilot ist aktuell.');
         break;
       }
