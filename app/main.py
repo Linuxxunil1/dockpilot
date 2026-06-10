@@ -2081,4 +2081,91 @@ async function applyUpdate(){
     if(r.ok)setTimeout(()=>location.reload(),8000);
   }catch(e){toast('Fehler: '+e,true)}
 }
+
+/* ── Konsole ─────────────────────────────────────────── */
+let _term=null, _ws=null, _fitAddon=null, _xtermLoaded=false;
+
+function _loadXterm(cb){
+  if(_xtermLoaded){cb();return;}
+  const css=document.createElement('link');
+  css.rel='stylesheet';
+  css.href='https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css';
+  document.head.appendChild(css);
+  function loadScript(src,next){
+    const s=document.createElement('script');
+    s.src=src;s.onload=next;document.head.appendChild(s);
+  }
+  loadScript('https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js',()=>{
+    loadScript('https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js',()=>{
+      _xtermLoaded=true;cb();
+    });
+  });
+}
+
+function initConsole(){
+  _loadXterm(()=>{
+    if(_term)return;
+    _term=new Terminal({
+      cursorBlink:true,
+      fontSize:14,
+      fontFamily:'"Cascadia Code","Fira Mono","Consolas",monospace',
+      theme:{background:'#0d1117',foreground:'#e6edf3',cursor:'#58a6ff',
+             selectionBackground:'#264f78',
+             black:'#0d1117',red:'#ff7b72',green:'#3fb950',yellow:'#d29922',
+             blue:'#58a6ff',magenta:'#bc8cff',cyan:'#39c5cf',white:'#b1bac4',
+             brightBlack:'#6e7681',brightRed:'#ffa198',brightGreen:'#56d364',
+             brightYellow:'#e3b341',brightBlue:'#79c0ff',brightMagenta:'#d2a8ff',
+             brightCyan:'#56d4dd',brightWhite:'#f0f6fc'},
+      allowProposedApi:true,
+    });
+    _fitAddon=new FitAddon.FitAddon();
+    _term.loadAddon(_fitAddon);
+    _term.open(document.getElementById('console-term'));
+    _fitAddon.fit();
+    window.addEventListener('resize',()=>{if(_fitAddon)_fitAddon.fit();});
+    _term.onResize(({cols,rows})=>{
+      if(_ws&&_ws.readyState===WebSocket.OPEN)
+        _ws.send(JSON.stringify({type:'resize',cols,rows}));
+    });
+    connectConsole();
+  });
+}
+
+function connectConsole(){
+  if(_ws&&(_ws.readyState===WebSocket.OPEN||_ws.readyState===WebSocket.CONNECTING))return;
+  const proto=location.protocol==='https:'?'wss':'ws';
+  const url=`${proto}://${location.host}/ws/console`;
+  _ws=new WebSocket(url);
+  _ws.binaryType='arraybuffer';
+  const status=document.getElementById('konsole-status');
+  const reconnBtn=document.getElementById('konsole-reconnect');
+  status.textContent='● Verbinde…';status.style.color='#d29922';
+  reconnBtn.style.display='none';
+  _ws.onopen=()=>{
+    status.textContent='● Verbunden';status.style.color='#3fb950';
+    if(_term&&_fitAddon){
+      _fitAddon.fit();
+      const{cols,rows}=_term;
+      _ws.send(JSON.stringify({type:'resize',cols,rows}));
+    }
+  };
+  _ws.onmessage=e=>{
+    if(_term){
+      if(e.data instanceof ArrayBuffer)_term.write(new Uint8Array(e.data));
+      else _term.write(e.data);
+    }
+  };
+  _ws.onclose=()=>{
+    status.textContent='● Getrennt';status.style.color='#ff7b72';
+    reconnBtn.style.display='';
+    if(_term)_term.write('\\r\\n\\x1b[31m[Verbindung getrennt]\\x1b[0m\\r\\n');
+  };
+  _ws.onerror=()=>{
+    status.textContent='● Fehler';status.style.color='#ff7b72';
+    if(_term)_term.write('\\r\\n\\x1b[31m[WebSocket-Fehler]\\x1b[0m\\r\\n');
+  };
+  _term.onData(data=>{
+    if(_ws&&_ws.readyState===WebSocket.OPEN)_ws.send(data);
+  });
+}
 </script></body></html>"""
