@@ -1465,6 +1465,7 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
   <div class="logo">🐳 dock<span>pilot</span></div>
   <div class="right">
     <span id="meta"></span>
+    <button id="check-update-btn" class="hbtn" onclick="checkForUpdate()" title="Manuell nach Updates suchen">↻ Update prüfen</button>
     <button id="update-badge" class="update-badge" style="display:none" onclick="applyUpdate()">↑ Update verfügbar</button>
     <form method="post" action="/logout"><button class="hbtn">Logout</button></form>
   </div>
@@ -1987,7 +1988,34 @@ async function loadUpdateStatus(){
     const badge=document.getElementById('update-badge');
     badge.style.display=s.update_available?'':'none';
     badge.title=s.image_ref?`Image: ${s.image_ref}${s.last_check?` · Geprüft: ${new Date(s.last_check*1000).toLocaleTimeString()}`:''}`:'';
+    const btn=document.getElementById('check-update-btn');
+    if(btn&&!btn.disabled){
+      btn.title=s.last_check?`Zuletzt geprüft: ${new Date(s.last_check*1000).toLocaleTimeString()}`+(s.error?` · Fehler: ${s.error}`:''):'Noch nicht geprüft';
+    }
   }catch(e){}
+}
+async function checkForUpdate(){
+  const btn=document.getElementById('check-update-btn');
+  btn.disabled=true;btn.textContent='↻ Prüfe…';
+  try{
+    await fetch('/api/self/update/check',{method:'POST'});
+    // Poll until checking is done (max 20s)
+    for(let i=0;i<20;i++){
+      await new Promise(r=>setTimeout(r,1000));
+      const r=await fetch('/api/self/update');
+      if(!r.ok)break;
+      const s=await r.json();
+      if(!s.checking){
+        const badge=document.getElementById('update-badge');
+        badge.style.display=s.update_available?'':'none';
+        if(s.error)toast('Update-Check fehlgeschlagen: '+s.error,true);
+        else if(s.update_available)toast('Update verfügbar! Klick auf den grünen Button zum Installieren.');
+        else toast('Kein Update verfügbar — DockPilot ist aktuell.');
+        break;
+      }
+    }
+  }catch(e){toast('Fehler: '+e,true)}
+  btn.disabled=false;btn.textContent='↻ Update prüfen';
 }
 async function applyUpdate(){
   if(!confirm('DockPilot jetzt auf die neueste Version aktualisieren?\\n\\nDer Container wird kurz neu gestartet — die Verbindung trennt sich für ~5 Sekunden.'))return;
