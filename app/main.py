@@ -286,10 +286,18 @@ def _self_container_id() -> str | None:
         with open("/proc/self/cgroup") as f:
             for line in f:
                 parts = line.strip().split(":")
-                if len(parts) >= 3 and "/docker/" in parts[2]:
-                    cid = parts[2].split("/docker/")[-1]
-                    if len(cid) >= 12:
+                if len(parts) < 3:
+                    continue
+                path = parts[2]
+                # cgroup v1: /docker/<64-char-id>
+                if "/docker/" in path:
+                    cid = path.split("/docker/")[-1].split("/")[0]
+                    if re.fullmatch(r"[0-9a-f]{12,64}", cid):
                         return cid[:12]
+                # cgroup v2: /system.slice/docker-<64-char-id>.scope
+                m = re.search(r"docker-([0-9a-f]{64})(?:\.scope)?", path)
+                if m:
+                    return m.group(1)[:12]
     except OSError:
         pass
     try:
@@ -297,10 +305,14 @@ def _self_container_id() -> str | None:
             for line in f:
                 if "/docker/containers/" in line:
                     cid = line.split("/docker/containers/")[1].split("/")[0]
-                    if len(cid) >= 12:
+                    if re.fullmatch(r"[0-9a-f]{12,64}", cid):
                         return cid[:12]
     except OSError:
         pass
+    # hostname fallback — Docker sets container hostname to the short container ID
+    hostname = os.environ.get("HOSTNAME", "")
+    if re.fullmatch(r"[0-9a-f]{12,64}", hostname):
+        return hostname[:12]
     return None
 
 
@@ -965,11 +977,58 @@ def api_self_update_apply(request: Request):
     except docker.errors.NotFound:
         raise HTTPException(status_code=404, detail="Container nicht gefunden")
 
-    def _apply():
-        time.sleep(0.5)
-        recreate_with_new_image(c)
+    labels = c.attrs.get("Labels") or {}
+    compose_files = labels.get("com.docker.compose.project.config_files", "")
+    compose_service = labels.get("com.docker.compose.service", "")
+    image_ref = c.attrs["Config"]["Image"]
 
-    threading.Thread(target=_apply, daemon=True).start()
+    if not compose_files or not compose_service:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Self-Update benötigt docker-compose. "
+                "Bitte manuell aktualisieren: docker compose pull && docker compose up -d"
+            ),
+        )
+
+    def _do_apply():
+        try:
+            client.images.pull(image_ref)
+        except Exception as exc:
+            _UPDATE_STATE["error"] = f"Pull fehlgeschlagen: {exc}"
+            return
+        # Spawn a short-lived helper container that runs outside DockPilot's process
+        # namespace so it survives when this container is stopped/replaced.
+        # The helper mounts the docker socket + the compose file directory and uses
+        # `docker compose up --force-recreate` to replace DockPilot atomically.
+        compose_dir = os.path.dirname(compose_files)
+        script = (
+            f"sleep 3 && "
+            f"docker compose -f '{compose_files}' up -d --force-recreate '{compose_service}'"
+        )
+        try:
+            try:
+                stale = client.containers.get("dockpilot-self-updater")
+                stale.remove(force=True)
+            except docker.errors.NotFound:
+                pass
+            helper = client.api.create_container(
+                image=image_ref,
+                name="dockpilot-self-updater",
+                entrypoint=["sh", "-c", script],
+                host_config=client.api.create_host_config(
+                    binds=[
+                        "/var/run/docker.sock:/var/run/docker.sock",
+                        f"{compose_dir}:{compose_dir}:ro",
+                    ],
+                    auto_remove=True,
+                ),
+            )
+            client.api.start(helper["Id"])
+        except Exception as exc:
+            _UPDATE_STATE["error"] = f"Updater-Start fehlgeschlagen: {exc}"
+
+    threading.Thread(target=_do_apply, daemon=True).start()
     return {"ok": True}
 
 
