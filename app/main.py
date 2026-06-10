@@ -1,19 +1,13 @@
-import asyncio
 import datetime
-import fcntl
 import hashlib
 import hmac
 import html
 import json
 import os
-import pty
 import re
 import secrets
-import select
 import shutil
-import struct
 import subprocess
-import termios
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -24,7 +18,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.x509.oid import NameOID
-from fastapi import FastAPI, Form, HTTPException, Request, Response, WebSocket
+from fastapi import FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 STACKS_DIR = os.environ.get("STACKS_DIR", "/opt/dockpilot/stacks")
@@ -979,74 +973,6 @@ def api_self_update_apply(request: Request):
     return {"ok": True}
 
 
-@app.websocket("/ws/console")
-async def ws_console(websocket: WebSocket):
-    token = websocket.cookies.get(COOKIE)
-    if not valid_token(token):
-        await websocket.close(code=4001)
-        return
-    await websocket.accept()
-
-    master_fd, slave_fd = pty.openpty()
-    fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
-    proc = subprocess.Popen(
-        ["/bin/bash", "-l"],
-        stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
-        close_fds=True, preexec_fn=os.setsid,
-        env={**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"},
-    )
-    os.close(slave_fd)
-    loop = asyncio.get_running_loop()
-
-    async def pty_to_ws():
-        try:
-            while proc.poll() is None:
-                r, _, _ = await loop.run_in_executor(
-                    None, select.select, [master_fd], [], [], 0.05
-                )
-                if r:
-                    data = os.read(master_fd, 4096)
-                    await websocket.send_bytes(data)
-        except Exception:
-            pass
-
-    async def ws_to_pty():
-        try:
-            while True:
-                msg = await websocket.receive_text()
-                try:
-                    j = json.loads(msg)
-                    if j.get("type") == "resize":
-                        fcntl.ioctl(master_fd, termios.TIOCSWINSZ,
-                                    struct.pack("HHHH", j.get("rows", 24), j.get("cols", 80), 0, 0))
-                        continue
-                except (json.JSONDecodeError, KeyError):
-                    pass
-                os.write(master_fd, msg.encode("utf-8", errors="replace"))
-        except Exception:
-            pass
-
-    read_task = asyncio.create_task(pty_to_ws())
-    write_task = asyncio.create_task(ws_to_pty())
-    _, pending = await asyncio.wait([read_task, write_task],
-                                    return_when=asyncio.FIRST_COMPLETED)
-    for t in pending:
-        t.cancel()
-        try:
-            await t
-        except asyncio.CancelledError:
-            pass
-    try:
-        proc.terminate()
-        proc.wait(timeout=2)
-    except Exception:
-        pass
-    try:
-        os.close(master_fd)
-    except Exception:
-        pass
-
-
 # ----------------------------- Templates -----------------------------
 SETUP_HTML = """<!doctype html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1482,12 +1408,6 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
 @keyframes pulse-upd{0%,100%{box-shadow:0 0 0 0 rgba(34,197,94,.5)}
   50%{box-shadow:0 0 0 6px rgba(34,197,94,.0)}}
 .update-badge:hover{filter:brightness(1.15)}
-
-#view-konsole{margin:-1.5rem -1.75rem;height:calc(100vh - 95px);display:flex;flex-direction:column}
-.konsole-bar{display:flex;align-items:center;gap:.5rem;padding:.55rem 1.25rem;
-  background:#04080f;border-bottom:1px solid #182a45;flex-shrink:0}
-.konsole-bar span{font-size:.72rem;color:#3a5a7a}
-#console-term{flex:1;min-height:0}
 </style></head><body>
 
 <!-- Token / Registry Modal -->
@@ -1566,7 +1486,6 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
   <button class="tab active" onclick="switchTab('containers')" id="tab-containers">Container</button>
   <button class="tab" onclick="switchTab('stacks')" id="tab-stacks">Stacks</button>
   <button class="tab" onclick="switchTab('wartung')" id="tab-wartung">Wartung</button>
-  <button class="tab" onclick="switchTab('konsole')" id="tab-konsole">Konsole</button>
 </div>
 <main>
 
@@ -1626,14 +1545,6 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
   </div>
 </div>
 
-<div id="view-konsole" style="display:none">
-  <div class="konsole-bar">
-    <span id="konsole-status">● Nicht verbunden</span>
-    <button class="tbtn" id="konsole-reconnect" style="display:none;background:linear-gradient(135deg,#1e3a8a,#3b82f6);font-size:.72rem;padding:.28rem .6rem" onclick="connectConsole()">↺ Neu verbinden</button>
-  </div>
-  <div id="console-term"></div>
-</div>
-
 </main>
 <div id="toast"></div>
 <script>
@@ -1653,16 +1564,17 @@ return `<div class="card"><div class="lbl">${lbl}</div><div class="val">${val}</
 let activeTab='containers',activeWartungTab='images';
 function switchTab(tab){
   activeTab=tab;
-  ['containers','stacks','wartung','konsole'].forEach(t=>{
-    document.getElementById('view-'+t).style.display=tab===t?'':'none';
-    document.getElementById('tab-'+t).classList.toggle('active',tab===t);
-  });
+  document.getElementById('view-containers').style.display=tab==='containers'?'':'none';
+  document.getElementById('view-stacks').style.display=tab==='stacks'?'':'none';
+  document.getElementById('view-wartung').style.display=tab==='wartung'?'':'none';
+  document.getElementById('tab-containers').classList.toggle('active',tab==='containers');
+  document.getElementById('tab-stacks').classList.toggle('active',tab==='stacks');
+  document.getElementById('tab-wartung').classList.toggle('active',tab==='wartung');
   if(tab==='stacks')loadStacks();
   if(tab==='wartung'){
     if(activeWartungTab==='images')loadImages();
     else loadUpdateStatus();
   }
-  if(tab==='konsole')initConsole();
 }
 function switchWartungTab(sub){
   activeWartungTab=sub;
@@ -2168,92 +2080,5 @@ async function applyUpdate(){
     r.ok?toast('Update gestartet — Seite lädt gleich neu…'):toast('Fehler: '+(j.detail||r.status),true);
     if(r.ok)setTimeout(()=>location.reload(),8000);
   }catch(e){toast('Fehler: '+e,true)}
-}
-
-/* ── Konsole ─────────────────────────────────────────── */
-let _term=null, _ws=null, _fitAddon=null, _xtermLoaded=false;
-
-function _loadXterm(cb){
-  if(_xtermLoaded){cb();return;}
-  const css=document.createElement('link');
-  css.rel='stylesheet';
-  css.href='https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css';
-  document.head.appendChild(css);
-  function loadScript(src,next){
-    const s=document.createElement('script');
-    s.src=src;s.onload=next;document.head.appendChild(s);
-  }
-  loadScript('https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js',()=>{
-    loadScript('https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js',()=>{
-      _xtermLoaded=true;cb();
-    });
-  });
-}
-
-function initConsole(){
-  _loadXterm(()=>{
-    if(_term)return;
-    _term=new Terminal({
-      cursorBlink:true,
-      fontSize:14,
-      fontFamily:'"Cascadia Code","Fira Mono","Consolas",monospace',
-      theme:{background:'#0d1117',foreground:'#e6edf3',cursor:'#58a6ff',
-             selectionBackground:'#264f78',
-             black:'#0d1117',red:'#ff7b72',green:'#3fb950',yellow:'#d29922',
-             blue:'#58a6ff',magenta:'#bc8cff',cyan:'#39c5cf',white:'#b1bac4',
-             brightBlack:'#6e7681',brightRed:'#ffa198',brightGreen:'#56d364',
-             brightYellow:'#e3b341',brightBlue:'#79c0ff',brightMagenta:'#d2a8ff',
-             brightCyan:'#56d4dd',brightWhite:'#f0f6fc'},
-      allowProposedApi:true,
-    });
-    _fitAddon=new FitAddon.FitAddon();
-    _term.loadAddon(_fitAddon);
-    _term.open(document.getElementById('console-term'));
-    _fitAddon.fit();
-    window.addEventListener('resize',()=>{if(_fitAddon)_fitAddon.fit();});
-    _term.onResize(({cols,rows})=>{
-      if(_ws&&_ws.readyState===WebSocket.OPEN)
-        _ws.send(JSON.stringify({type:'resize',cols,rows}));
-    });
-    connectConsole();
-  });
-}
-
-function connectConsole(){
-  if(_ws&&(_ws.readyState===WebSocket.OPEN||_ws.readyState===WebSocket.CONNECTING))return;
-  const proto=location.protocol==='https:'?'wss':'ws';
-  const url=`${proto}://${location.host}/ws/console`;
-  _ws=new WebSocket(url);
-  _ws.binaryType='arraybuffer';
-  const status=document.getElementById('konsole-status');
-  const reconnBtn=document.getElementById('konsole-reconnect');
-  status.textContent='● Verbinde…';status.style.color='#d29922';
-  reconnBtn.style.display='none';
-  _ws.onopen=()=>{
-    status.textContent='● Verbunden';status.style.color='#3fb950';
-    if(_term&&_fitAddon){
-      _fitAddon.fit();
-      const{cols,rows}=_term;
-      _ws.send(JSON.stringify({type:'resize',cols,rows}));
-    }
-  };
-  _ws.onmessage=e=>{
-    if(_term){
-      if(e.data instanceof ArrayBuffer)_term.write(new Uint8Array(e.data));
-      else _term.write(e.data);
-    }
-  };
-  _ws.onclose=()=>{
-    status.textContent='● Getrennt';status.style.color='#ff7b72';
-    reconnBtn.style.display='';
-    if(_term)_term.write('\\r\\n\\x1b[31m[Verbindung getrennt]\\x1b[0m\\r\\n');
-  };
-  _ws.onerror=()=>{
-    status.textContent='● Fehler';status.style.color='#ff7b72';
-    if(_term)_term.write('\\r\\n\\x1b[31m[WebSocket-Fehler]\\x1b[0m\\r\\n');
-  };
-  _term.onData(data=>{
-    if(_ws&&_ws.readyState===WebSocket.OPEN)_ws.send(data);
-  });
 }
 </script></body></html>"""
