@@ -966,6 +966,48 @@ def api_self_update_check(request: Request):
     return {"ok": True}
 
 
+# Inline Python script executed by the self-updater helper container.
+# Receives the target container ID as sys.argv[1].
+# Runs outside DockPilot's process namespace so it survives the container stop.
+_RECREATE_SCRIPT = """\
+import docker, sys, time
+client = docker.DockerClient(base_url="unix://var/run/docker.sock")
+time.sleep(3)
+cid = sys.argv[1]
+c = client.containers.get(cid)
+attrs = c.attrs; cfg = attrs["Config"]; hc = attrs["HostConfig"]
+name = c.name; image_ref = cfg["Image"]
+nets = list((attrs.get("NetworkSettings") or {}).get("Networks", {}).items())
+primary_ep = None
+if nets:
+    pnet, ncfg = nets[0]
+    aliases = [a for a in (ncfg.get("Aliases") or []) if a != c.id[:12]]
+    ep = client.api.create_endpoint_config(aliases=aliases or None)
+    primary_ep = (pnet, ep)
+nc = client.api.create_networking_config({primary_ep[0]: primary_ep[1]}) if primary_ep else None
+new_hc = client.api.create_host_config(
+    binds=hc.get("Binds"), port_bindings=hc.get("PortBindings"),
+    restart_policy=hc.get("RestartPolicy"), network_mode=hc.get("NetworkMode"),
+    privileged=hc.get("Privileged", False), cap_add=hc.get("CapAdd"),
+    cap_drop=hc.get("CapDrop"), security_opt=hc.get("SecurityOpt"),
+    dns=hc.get("Dns"), extra_hosts=hc.get("ExtraHosts"),
+)
+c.stop(); c.remove()
+new = client.api.create_container(
+    image=image_ref, name=name, command=cfg.get("Cmd"),
+    entrypoint=cfg.get("Entrypoint"), environment=cfg.get("Env"),
+    labels=cfg.get("Labels"), working_dir=cfg.get("WorkingDir") or None,
+    user=cfg.get("User") or None, hostname=cfg.get("Hostname"),
+    tty=cfg.get("Tty", False), host_config=new_hc, networking_config=nc,
+)
+new_id = new["Id"]
+for net_name, ncfg in nets[1:]:
+    aliases = [a for a in (ncfg.get("Aliases") or []) if a != c.id[:12]]
+    client.api.connect_container_to_network(new_id, net_name, aliases=aliases or None)
+client.api.start(new_id)
+"""
+
+
 @app.post("/api/self/update/apply")
 def api_self_update_apply(request: Request):
     require_auth(request)
@@ -981,15 +1023,7 @@ def api_self_update_apply(request: Request):
     compose_files = labels.get("com.docker.compose.project.config_files", "")
     compose_service = labels.get("com.docker.compose.service", "")
     image_ref = c.attrs["Config"]["Image"]
-
-    if not compose_files or not compose_service:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Self-Update benötigt docker-compose. "
-                "Bitte manuell aktualisieren: docker compose pull && docker compose up -d"
-            ),
-        )
+    full_cid = c.id
 
     def _do_apply():
         try:
@@ -997,33 +1031,42 @@ def api_self_update_apply(request: Request):
         except Exception as exc:
             _UPDATE_STATE["error"] = f"Pull fehlgeschlagen: {exc}"
             return
-        # Spawn a short-lived helper container that runs outside DockPilot's process
-        # namespace so it survives when this container is stopped/replaced.
-        # The helper mounts the docker socket + the compose file directory and uses
-        # `docker compose up --force-recreate` to replace DockPilot atomically.
-        compose_dir = os.path.dirname(compose_files)
-        script = (
-            f"sleep 3 && "
-            f"docker compose -f '{compose_files}' up -d --force-recreate '{compose_service}'"
-        )
         try:
-            try:
-                stale = client.containers.get("dockpilot-self-updater")
-                stale.remove(force=True)
-            except docker.errors.NotFound:
-                pass
-            helper = client.api.create_container(
-                image=image_ref,
-                name="dockpilot-self-updater",
-                entrypoint=["sh", "-c", script],
-                host_config=client.api.create_host_config(
-                    binds=[
-                        "/var/run/docker.sock:/var/run/docker.sock",
-                        f"{compose_dir}:{compose_dir}:ro",
-                    ],
-                    auto_remove=True,
-                ),
-            )
+            stale = client.containers.get("dockpilot-self-updater")
+            stale.remove(force=True)
+        except docker.errors.NotFound:
+            pass
+        try:
+            if compose_files and compose_service:
+                # Compose-managed: run docker compose up from helper container
+                compose_dir = os.path.dirname(compose_files)
+                cmd = (
+                    f"sleep 3 && docker compose -f '{compose_files}'"
+                    f" up -d --force-recreate '{compose_service}'"
+                )
+                helper = client.api.create_container(
+                    image=image_ref,
+                    name="dockpilot-self-updater",
+                    entrypoint=["sh", "-c", cmd],
+                    host_config=client.api.create_host_config(
+                        binds=[
+                            "/var/run/docker.sock:/var/run/docker.sock",
+                            f"{compose_dir}:{compose_dir}:ro",
+                        ],
+                        auto_remove=True,
+                    ),
+                )
+            else:
+                # Standalone docker run: helper recreates container via Python SDK
+                helper = client.api.create_container(
+                    image=image_ref,
+                    name="dockpilot-self-updater",
+                    entrypoint=["python3", "-c", _RECREATE_SCRIPT, full_cid],
+                    host_config=client.api.create_host_config(
+                        binds=["/var/run/docker.sock:/var/run/docker.sock"],
+                        auto_remove=True,
+                    ),
+                )
             client.api.start(helper["Id"])
         except Exception as exc:
             _UPDATE_STATE["error"] = f"Updater-Start fehlgeschlagen: {exc}"
