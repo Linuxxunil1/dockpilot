@@ -1990,7 +1990,7 @@ async function loadUpdateStatus(){
   }catch(e){}
 }
 async function applyUpdate(){
-  if(!confirm('DockPilot jetzt auf die neueste Version aktualisieren?\n\nDer Container wird kurz neu gestartet — die Verbindung trennt sich für ~5 Sekunden.'))return;
+  if(!confirm('DockPilot jetzt auf die neueste Version aktualisieren?\\n\\nDer Container wird kurz neu gestartet — die Verbindung trennt sich für ~5 Sekunden.'))return;
   try{
     const r=await fetch('/api/self/update/apply',{method:'POST'});
     const j=await r.json().catch(()=>({}));
