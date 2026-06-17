@@ -181,6 +181,7 @@ def serialize(c):
     running = c.status == "running"
     image = c.attrs["Config"]["Image"]
     compose = c.labels.get("com.docker.compose.project")
+    compose_dir = c.labels.get("com.docker.compose.project.working_dir", "")
     data = {
         "id": c.short_id,
         "name": c.name,
@@ -188,6 +189,7 @@ def serialize(c):
         "status": c.status,
         "running": running,
         "compose": compose,
+        "compose_dir": compose_dir,
         "cpu": None, "mem": None, "mem_used": None, "mem_limit": None,
         "net_rx": None, "net_tx": None,
     }
@@ -463,7 +465,7 @@ def _run_compose(name: str, *args, timeout: int = 300) -> dict:
     env = {**os.environ, "DOCKER_CONFIG": DOCKER_CFG_DIR}
     try:
         proc = subprocess.run(
-            ["docker", "compose", *args],
+            ["docker", "compose", "-p", name, *args],
             cwd=d,
             capture_output=True,
             text=True,
@@ -743,7 +745,7 @@ def api_stacks(request: Request):
         for name in sorted(os.listdir(STACKS_DIR)):
             stack_dir = os.path.join(STACKS_DIR, name)
             if os.path.isdir(stack_dir) and os.path.isfile(os.path.join(stack_dir, "docker-compose.yaml")):
-                result.append({"name": name})
+                result.append({"name": name, "dir": os.path.realpath(stack_dir)})
     except OSError:
         pass
     return JSONResponse(result)
@@ -1991,7 +1993,7 @@ async function loadStacks(){
     const grid=document.getElementById('scard-grid');
     let html='';
     stacks.forEach(s=>{
-      const ctrs=last.filter(c=>c.compose===s.name);
+      const ctrs=last.filter(c=>c.compose===s.name||(s.dir&&c.compose_dir===s.dir));
       const total=ctrs.length,run=ctrs.filter(c=>c.running).length;
       const dot=total===0?'down':run===total?'up':run>0?'partial':'down';
       const meta=total===0?'keine Container':`${run}/${total} laufen`;
