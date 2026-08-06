@@ -22,10 +22,11 @@ curl -o docker-compose.yaml \
 | Variable | Was ändern |
 |---|---|
 | `DASH_PASSWORD=changeme` | Sicheres Passwort wählen |
-| `DASH_SECRET=changeme` | Zufallswert: `openssl rand -hex 32` |
 | `dockpilot.example.com` | Eigene Domain |
 | `letsencrypt` | Name des Cert-Resolvers in Traefik |
 | `name: proxy` | Name des externen Traefik-Netzwerks |
+
+> `DASH_SECRET` wird beim ersten Start automatisch generiert und in `/data/secret_key` gespeichert — kein manuelles Setzen nötig.
 
 **3. Starten**
 

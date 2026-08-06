@@ -8,7 +8,8 @@ services:
     environment:
       - DASH_USER=admin                           # Benutzername
       - DASH_PASSWORD=changeme                    # ← Sicheres Passwort setzen!
-      - DASH_SECRET=changeme                      # ← Zufallswert: openssl rand -hex 32
+      # DASH_SECRET wird automatisch generiert — kein manuelles Setzen nötig
+      # Optional überschreiben: - DASH_SECRET=<eigener-wert>
       - STACKS_DIR=/opt/dockpilot/stacks
     networks:
       - proxy

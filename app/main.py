@@ -27,6 +27,7 @@ STACKS_DIR = os.environ.get("STACKS_DIR", "/opt/dockpilot/stacks")
 DATA_DIR   = os.environ.get("DATA_DIR",   "/data")
 CREDS_FILE = os.path.join(DATA_DIR, "credentials.json")
 CERTS_DIR  = os.path.join(DATA_DIR, "certs")
+SECRET_FILE = os.path.join(DATA_DIR, "secret_key")
 SESSION_TTL = 7 * 24 * 3600
 COOKIE = "dockpilot_session"
 SAFE_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
@@ -35,20 +36,37 @@ DOCKER_CFG_DIR = os.path.join(DATA_DIR, "docker")
 SERVERS_FILE   = os.path.join(DATA_DIR, "servers.json")
 MODE_FILE      = os.path.join(DATA_DIR, "mode.json")
 
+_INSECURE_DEFAULTS = {"changeme", "insecure", "insecure-default-secret", ""}
+
+def _get_secret() -> bytes:
+    """Return the signing secret — explicit env var wins, otherwise auto-generate once."""
+    env = os.environ.get("DASH_SECRET", "")
+    if env and env not in _INSECURE_DEFAULTS:
+        return env.encode()
+    if os.path.isfile(SECRET_FILE):
+        with open(SECRET_FILE) as f:
+            return f.read().strip().encode()
+    os.makedirs(DATA_DIR, exist_ok=True)
+    secret = secrets.token_hex(32)
+    with open(SECRET_FILE, "w") as f:
+        f.write(secret)
+    return secret.encode()
+
 # Credentials — live aus Datei lesen, Fallback auf Env-Vars
 def _load_creds():
+    secret = _get_secret()
     if os.path.isfile(CREDS_FILE):
         with open(CREDS_FILE) as creds_file:
             creds_data = json.load(creds_file)
         return (
-            creds_data.get("user",   os.environ.get("DASH_USER",   "admin")),
+            creds_data.get("user",     os.environ.get("DASH_USER",     "admin")),
             creds_data.get("password", os.environ.get("DASH_PASSWORD", "changeme")),
-            creds_data.get("secret", os.environ.get("DASH_SECRET", "insecure")).encode(),
+            creds_data.get("secret",   secret.decode()).encode(),
         )
     return (
-        os.environ.get("DASH_USER",   "admin"),
+        os.environ.get("DASH_USER",     "admin"),
         os.environ.get("DASH_PASSWORD", "changeme"),
-        os.environ.get("DASH_SECRET", "insecure-default-secret").encode(),
+        secret,
     )
 
 def _load_mode() -> dict:
