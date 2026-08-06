@@ -9,24 +9,13 @@ services:
       - DASH_USER=admin                           # Benutzername
       - DASH_PASSWORD=changeme                    # ← Sicheres Passwort setzen!
       # DASH_SECRET wird automatisch generiert — kein manuelles Setzen nötig
-      # Optional überschreiben: - DASH_SECRET=<eigener-wert>
       - STACKS_DIR=/opt/dockpilot/stacks
-    networks:
-      - proxy
+    ports:
+      - "8080:8080"                               # ← Port anpassen oder eigenen Proxy vorschalten
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /opt/dockpilot/stacks:/opt/dockpilot/stacks
       - /opt/dockpilot/data:/data
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.dockpilot.rule=Host(`dockpilot.example.com`)"  # ← Domain anpassen
-      - "traefik.http.routers.dockpilot.entrypoints=websecure"
-      - "traefik.http.routers.dockpilot.tls=true"
-      - "traefik.http.routers.dockpilot.tls.certresolver=letsencrypt"        # ← Cert-Resolver anpassen
-      - "traefik.http.routers.dockpilot.service=dockpilot"
-      - "traefik.http.services.dockpilot.loadbalancer.server.port=8080"
-      # Optional – mTLS aktivieren:
-      # - "traefik.http.routers.dockpilot.tls.options=mtls@file"
 
   # Updater-Sidecar: führt Self-Updates durch ohne dass dockpilot sich selbst töten muss.
   # Starte ihn zusammen mit dockpilot – er schläft die meiste Zeit und fragt nur alle 8 Stunden nach Updates.
@@ -46,8 +35,3 @@ services:
     # Kein Port-Mapping nötig – dockpilot erreicht den Updater über das Docker-Netzwerk
 
 volumes: {}
-
-networks:
-  proxy:
-    external: true
-    name: proxy   # ← Name des Traefik-Netzwerks anpassen

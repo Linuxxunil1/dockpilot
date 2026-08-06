@@ -4,8 +4,6 @@ Schlankes Docker-Management-Dashboard (FastAPI + Docker SDK) — Container-Über
 Live-Stats, Start/Stop/Restart/Update, Compose-Stack-Verwaltung, Remote-Server per SSH
 und ein integriertes Web-Terminal.
 
-Läuft hinter Traefik (Netzwerk `proxy`), HTTPS via Let's Encrypt.
-
 ## Deployment
 
 Drei Schritte, eine Datei, kein Repo-Clone nötig.
@@ -22,11 +20,9 @@ curl -o docker-compose.yaml \
 | Variable | Was ändern |
 |---|---|
 | `DASH_PASSWORD=changeme` | Sicheres Passwort wählen |
-| `dockpilot.example.com` | Eigene Domain |
-| `letsencrypt` | Name des Cert-Resolvers in Traefik |
-| `name: proxy` | Name des externen Traefik-Netzwerks |
+| `8080:8080` | Port anpassen oder eigenen Reverse Proxy vorschalten |
 
-> `DASH_SECRET` wird beim ersten Start automatisch generiert und in `/data/secret_key` gespeichert — kein manuelles Setzen nötig.
+> `DASH_SECRET` wird beim ersten Start automatisch generiert — kein manuelles Setzen nötig.
 
 **3. Starten**
 
@@ -82,8 +78,7 @@ docker compose down
 Zwingt den Browser, ein Client-Zertifikat vorzuweisen. Aktivieren:
 
 1. Im Setup-Wizard Zertifikat generieren und `client.p12` im Browser importieren.
-2. mTLS-Block in die Traefik-Dynamic-Config (`tls.yaml`) einfügen (siehe `examples/traefik.yml`).
-3. In `docker-compose.yaml` die auskommentierte `tls.options`-Zeile einkommentieren.
-4. `docker compose up -d`
+2. `ca.crt` in den Reverse Proxy (nginx, Caddy, …) einbinden und Client-Auth aktivieren.
+3. `docker compose up -d`
 
 > Geheim halten: `docker-compose.yaml` (enthält Passwörter), `certs/*.key`, `certs/*.p12`.

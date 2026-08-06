@@ -670,86 +670,6 @@ def setup_download(filename: str):
                        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
-def _data_host_path() -> str:
-    """Findet den Host-Pfad des /data-Volumes durch Inspektion des eigenen Containers."""
-    try:
-        own_container = client.containers.get("dockpilot")
-        for mount in own_container.attrs.get("Mounts", []):
-            if mount.get("Destination") == "/data":
-                return mount["Source"]
-    except Exception:
-        pass
-    return DATA_DIR
-
-
-def _traefik_dynamic_path(container) -> str:
-    """Resolve Traefik's dynamic config directory from container args and mounts."""
-    file_dir = None
-    for arg in container.attrs.get("Args", []):
-        if arg.startswith("--providers.file.filename="):
-            file_dir = os.path.dirname(arg.split("=", 1)[1])
-            break
-        if arg.startswith("--providers.file.directory="):
-            file_dir = arg.split("=", 1)[1]
-            break
-    mounts = container.attrs.get("Mounts", [])
-    if file_dir:
-        for mount in mounts:
-            dest = mount.get("Destination", "").rstrip("/")
-            if file_dir.startswith(dest + "/") or file_dir == dest:
-                rel = file_dir[len(dest):].lstrip("/")
-                return os.path.join(mount["Source"], rel) if rel else mount["Source"]
-    for mount in mounts:
-        src = mount.get("Source", "").lower()
-        dst = mount.get("Destination", "").lower()
-        if "dynamic" in src or "dynamic" in dst:
-            return mount["Source"]
-    return None
-
-
-@app.get("/api/setup/detect-proxy")
-def setup_detect_proxy():
-    """Detect reverse proxy containers (Traefik, Nginx Proxy Manager)."""
-    result = {"traefik": None, "nginx_proxy_manager": None}
-    try:
-        for container in client.containers.list():
-            image = container.attrs["Config"]["Image"].lower()
-            img_base = image.split("/")[-1] if "/" in image else image
-            if container.name.lower() == "traefik" or img_base.startswith("traefik"):
-                result["traefik"] = {
-                    "container": container.name,
-                    "dynamic_path": _traefik_dynamic_path(container),
-                }
-            elif "nginx-proxy-manager" in image or "jc21/nginx" in image:
-                result["nginx_proxy_manager"] = {"container": container.name}
-    except Exception:
-        pass
-    return JSONResponse(result)
-
-
-@app.post("/api/setup/place-ca-cert")
-async def setup_place_ca_cert(request: Request):
-    ca_path = os.path.join(CERTS_DIR, "ca.crt")
-    if not os.path.isfile(ca_path):
-        raise HTTPException(status_code=400, detail="Zertifikat noch nicht generiert")
-    body = await request.json()
-    target = body.get("path", "").strip()
-    if not target or ".." in target:
-        raise HTTPException(status_code=400, detail="Ungültiger Zielpfad")
-    certs_host = os.path.join(_data_host_path(), "certs")
-    try:
-        client.containers.run(
-            "alpine:latest",
-            command=["cp", "/src/ca.crt", "/dst/dockpilot-ca.crt"],
-            volumes={
-                certs_host: {"bind": "/src", "mode": "ro"},
-                target:     {"bind": "/dst", "mode": "rw"},
-            },
-            remove=True,
-        )
-        return {"ok": True, "placed_at": os.path.join(target, "dockpilot-ca.crt")}
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/api/setup/mode")
@@ -1833,25 +1753,10 @@ input:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgba(59,130,2
       <a href="/api/setup/download/ca.crt" download>↓ ca.crt</a>
     </div>
     <div id="dl-hint" style="font-size:.75rem;color:#f59e0b;margin-top:.5rem">⬆ client.p12 herunterladen um fortzufahren</div>
-    <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid #182a45">
-      <div style="font-size:.78rem;color:#4a6a8a;margin-bottom:.6rem">ca.crt automatisch ablegen:</div>
-      <div id="proxy-status" style="font-size:.82rem;color:#3a5a7a">
-        <span id="proxy-scanning">⟳ Erkenne Proxy…</span>
-      </div>
-      <div id="proxy-actions" style="margin-top:.6rem;display:none">
-        <div id="traefik-action"></div>
-        <div id="npm-action"></div>
-        <div id="no-proxy-msg" style="display:none;font-size:.78rem;color:#3a5a7a">
-          Kein bekannter Proxy erkannt — ca.crt bitte manuell ablegen.
-        </div>
-      </div>
-      <div id="place-result" style="margin-top:.6rem;font-size:.8rem;display:none"></div>
-    </div>
-    <div class="note">
-      <strong style="color:#dce8f8">Manuelle Schritte nach dem Ablegen:</strong><br>
-      1. <code>client.p12</code> im Browser/OS importieren<br>
-      2. mTLS-Block in Traefik Dynamic-Config eintragen (siehe <code>examples/traefik.yml</code>)<br>
-      3. <code>tls.options</code>-Label in <code>docker-compose.yaml</code> einkommentieren
+    <div class="note" style="margin-top:.85rem">
+      <strong style="color:#dce8f8">Nächste Schritte:</strong><br>
+      1. <code>client.p12</code> im Browser / OS importieren<br>
+      2. <code>ca.crt</code> in deinen Reverse Proxy (nginx, Caddy …) einbinden und Client-Auth aktivieren
     </div>
   </div>
   <button class="btn" id="finish-btn" onclick="advancePanel()" style="margin-top:.85rem" disabled>Abschließen →</button>
@@ -1995,63 +1900,8 @@ async function generateCert(){
       document.getElementById('p12-pw').textContent=j.p12_password;
       document.getElementById('cert-result').style.display='';
       btn.style.display='none';
-      detectProxy();
     }else{btn.disabled=false;btn.textContent='Erneut versuchen'}
   }catch(e){btn.disabled=false;btn.textContent='Fehler: '+e.message}
-}
-async function detectProxy(){
-  const scanning=document.getElementById('proxy-scanning');
-  const actions=document.getElementById('proxy-actions');
-  const traefikEl=document.getElementById('traefik-action');
-  const npmEl=document.getElementById('npm-action');
-  const noProxyEl=document.getElementById('no-proxy-msg');
-  scanning.style.display='';
-  const r=await fetch('/api/setup/detect-proxy');
-  if(!r.ok){scanning.textContent='Proxy-Erkennung fehlgeschlagen';return}
-  const j=await r.json();
-  scanning.style.display='none';
-  actions.style.display='';
-  let found=false;
-  if(j.traefik){
-    found=true;
-    const name=j.traefik.container;
-    const path=j.traefik.dynamic_path;
-    if(path){
-      const btn=document.createElement('button');
-      btn.textContent='Automatisch ablegen';
-      btn.setAttribute('style','padding:.28rem .65rem;border-radius:6px;border:0;background:linear-gradient(135deg,#1d4ed8,#3b82f6);color:#fff;font-size:.75rem;cursor:pointer;font-weight:600');
-      btn.addEventListener('click',()=>placeCaCert(path));
-      const row=document.createElement('div');
-      row.setAttribute('style','display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.35rem');
-      const lbl=document.createElement('span');
-      lbl.setAttribute('style','font-size:.78rem;color:#60a5fa');
-      lbl.textContent='Traefik: '+name;
-      row.appendChild(lbl);row.appendChild(btn);
-      traefikEl.appendChild(row);
-    }else{
-      traefikEl.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.35rem"><span style="font-size:.78rem;color:#60a5fa">Traefik: ${name}</span><span style="font-size:.72rem;color:#f87171">Kein dynamic-Pfad gefunden</span></div>`;
-    }
-  }
-  if(j.nginx_proxy_manager){
-    found=true;
-    npmEl.innerHTML=`<div style="font-size:.78rem;color:#4a6a8a;padding:.25rem 0">NPM erkannt (${j.nginx_proxy_manager.container}) — ca.crt manuell im NPM-Interface importieren</div>`;
-  }
-  if(!found){noProxyEl.style.display='';}
-}
-async function placeCaCert(path){
-  const result=document.getElementById('place-result');
-  result.style.display='';result.style.color='#4a6a8a';result.textContent='⟳ Ablegen…';
-  const r=await fetch('/api/setup/place-ca-cert',{method:'POST',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});
-  if(r.ok){
-    const j=await r.json();
-    result.style.color='#4ade80';
-    result.textContent='✓ Abgelegt: '+j.placed_at;
-  }else{
-    const j=await r.json().catch(()=>({}));
-    result.style.color='#f87171';
-    result.textContent='Fehler: '+(j.detail||'Unbekannt');
-  }
 }
 function markDownloaded(){
   document.getElementById('finish-btn').disabled=false;
