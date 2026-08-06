@@ -1,0 +1,41 @@
+variables:
+  IMAGE_APP:     "$CI_REGISTRY_IMAGE:latest"
+  IMAGE_UPDATER: "$CI_REGISTRY_IMAGE/updater:latest"
+
+stages:
+  - build
+  - push
+
+# ── App-Image ────────────────────────────────────────────────────────────────
+build-app:
+  stage: build
+  tags: [dockpilot, docker]
+  script:
+    - docker build -t $IMAGE_APP ./app
+  only: [main]
+
+push-app:
+  stage: push
+  tags: [dockpilot, docker]
+  needs: [build-app]
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login $CI_REGISTRY -u $CI_REGISTRY_USER --password-stdin
+    - docker push $IMAGE_APP
+  only: [main]
+
+# ── Updater-Image ─────────────────────────────────────────────────────────────
+build-updater:
+  stage: build
+  tags: [dockpilot, docker]
+  script:
+    - docker build -t $IMAGE_UPDATER ./updater
+  only: [main]
+
+push-updater:
+  stage: push
+  tags: [dockpilot, docker]
+  needs: [build-updater]
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login $CI_REGISTRY -u $CI_REGISTRY_USER --password-stdin
+    - docker push $IMAGE_UPDATER
+  only: [main]
