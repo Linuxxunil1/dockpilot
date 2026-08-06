@@ -2,6 +2,7 @@ import datetime
 import hashlib
 import hmac
 import html
+import io
 import json
 import os
 import re
@@ -10,6 +11,7 @@ import shutil
 import subprocess
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import docker
@@ -30,6 +32,7 @@ COOKIE = "dockpilot_session"
 SAFE_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
 TOKENS_FILE    = os.path.join(DATA_DIR, "tokens.json")
 DOCKER_CFG_DIR = os.path.join(DATA_DIR, "docker")
+SERVERS_FILE   = os.path.join(DATA_DIR, "servers.json")
 
 # Credentials — live aus Datei lesen, Fallback auf Env-Vars
 def _load_creds():
@@ -954,6 +957,142 @@ def api_images_prune(request: Request):
     return {"deleted": deleted, "freed": freed}
 
 
+# ----------------------------- Ferne Server -----------------------------
+def _load_servers() -> list:
+    if os.path.isfile(SERVERS_FILE):
+        with open(SERVERS_FILE) as f:
+            return json.load(f)
+    return []
+
+
+def _save_servers(servers: list):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(SERVERS_FILE, "w") as f:
+        json.dump(servers, f, indent=2)
+
+
+def _get_server(server_id: str) -> dict | None:
+    for s in _load_servers():
+        if s.get("id") == server_id:
+            return s
+    return None
+
+
+def _ssh_connect(server: dict):
+    """Open a paramiko SSH connection to the given server config. Caller must close."""
+    import paramiko
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    kwargs: dict = {
+        "hostname": server["host"],
+        "port": int(server.get("port", 22)),
+        "username": server["username"],
+        "timeout": 10,
+        "look_for_keys": False,
+        "allow_agent": False,
+    }
+    if server.get("auth_type") == "password":
+        kwargs["password"] = server.get("password", "")
+    else:
+        key_data = server.get("ssh_key", "")
+        if key_data:
+            for klass in (paramiko.Ed25519Key, paramiko.RSAKey, paramiko.ECDSAKey, paramiko.DSSKey):
+                try:
+                    kwargs["pkey"] = klass.from_private_key(io.StringIO(key_data))
+                    break
+                except Exception:
+                    continue
+    ssh.connect(**kwargs)
+    return ssh
+
+
+@app.get("/api/servers")
+def api_servers_list(request: Request):
+    require_auth(request)
+    safe_keys = {"id", "name", "host", "port", "username", "auth_type"}
+    return JSONResponse([{k: v for k, v in s.items() if k in safe_keys} for s in _load_servers()])
+
+
+@app.post("/api/servers")
+async def api_server_add(request: Request):
+    require_auth(request)
+    body = await request.json()
+    name = body.get("name", "").strip()
+    host = body.get("host", "").strip()
+    username = body.get("username", "").strip()
+    if not name or not host or not username:
+        raise HTTPException(status_code=400, detail="Name, Host und Benutzer sind erforderlich")
+    auth_type = body.get("auth_type", "key")
+    server: dict = {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "host": host,
+        "port": int(body.get("port", 22)),
+        "username": username,
+        "auth_type": auth_type,
+    }
+    if auth_type == "password":
+        server["password"] = body.get("password", "")
+    else:
+        server["ssh_key"] = body.get("ssh_key", "")
+    servers = _load_servers()
+    servers.append(server)
+    _save_servers(servers)
+    return {"ok": True, "id": server["id"]}
+
+
+@app.put("/api/servers/{server_id}")
+async def api_server_update(server_id: str, request: Request):
+    require_auth(request)
+    body = await request.json()
+    servers = _load_servers()
+    for s in servers:
+        if s.get("id") == server_id:
+            for k in ("name", "host", "username"):
+                if k in body and body[k]:
+                    s[k] = body[k]
+            if "port" in body:
+                s["port"] = int(body["port"])
+            if body.get("ssh_key"):
+                s["ssh_key"] = body["ssh_key"]
+                s["auth_type"] = "key"
+                s.pop("password", None)
+            elif body.get("password"):
+                s["password"] = body["password"]
+                s["auth_type"] = "password"
+                s.pop("ssh_key", None)
+            _save_servers(servers)
+            return {"ok": True}
+    raise HTTPException(status_code=404, detail="Server nicht gefunden")
+
+
+@app.delete("/api/servers/{server_id}")
+def api_server_delete(server_id: str, request: Request):
+    require_auth(request)
+    servers = _load_servers()
+    filtered = [s for s in servers if s.get("id") != server_id]
+    if len(filtered) == len(servers):
+        raise HTTPException(status_code=404, detail="Server nicht gefunden")
+    _save_servers(filtered)
+    return {"ok": True}
+
+
+@app.post("/api/servers/{server_id}/test")
+def api_server_test(server_id: str, request: Request):
+    require_auth(request)
+    server = _get_server(server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server nicht gefunden")
+    try:
+        ssh = _ssh_connect(server)
+        ssh.close()
+        return {"ok": True}
+    except ImportError:
+        raise HTTPException(status_code=500, detail="paramiko nicht installiert")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.get("/api/self/update")
 def api_self_update_status(request: Request):
     require_auth(request)
@@ -1160,6 +1299,110 @@ async def ws_console(websocket: WebSocket):
         try:
             os.close(master_fd)
         except OSError:
+            pass
+
+
+@app.websocket("/ws/remote-console/{server_id}")
+async def ws_remote_console(websocket: WebSocket, server_id: str):
+    await websocket.accept()
+    token = websocket.cookies.get(COOKIE)
+    if not valid_token(token):
+        await websocket.close(code=4001)
+        return
+
+    server = _get_server(server_id)
+    if not server:
+        await websocket.send_text("\r\n\x1b[31m[Server nicht gefunden]\x1b[0m\r\n")
+        await websocket.close(code=4004)
+        return
+
+    loop = asyncio.get_running_loop()
+    try:
+        ssh = await loop.run_in_executor(None, _ssh_connect, server)
+    except ImportError:
+        await websocket.send_text("\r\n\x1b[31m[SSH-Bibliothek nicht installiert]\x1b[0m\r\n")
+        await websocket.close()
+        return
+    except Exception as exc:
+        await websocket.send_text(f"\r\n\x1b[31m[SSH-Fehler: {exc}]\x1b[0m\r\n")
+        await websocket.close()
+        return
+
+    try:
+        channel = await loop.run_in_executor(
+            None, lambda: ssh.invoke_shell(term="xterm-256color", width=220, height=50)
+        )
+        channel.settimeout(0.0)
+    except Exception as exc:
+        await websocket.send_text(f"\r\n\x1b[31m[Shell-Fehler: {exc}]\x1b[0m\r\n")
+        await websocket.close()
+        ssh.close()
+        return
+
+    q: asyncio.Queue = asyncio.Queue()
+
+    def _ssh_reader():
+        while True:
+            try:
+                if channel.closed or channel.eof_received:
+                    break
+                data = channel.recv(4096)
+                if not data:
+                    break
+                loop.call_soon_threadsafe(q.put_nowait, data)
+            except Exception:
+                break
+        loop.call_soon_threadsafe(q.put_nowait, None)
+
+    threading.Thread(target=_ssh_reader, daemon=True).start()
+
+    async def ssh_to_ws():
+        while True:
+            data = await q.get()
+            if data is None:
+                break
+            try:
+                await websocket.send_bytes(data)
+            except Exception:
+                break
+
+    async def ws_to_ssh():
+        while True:
+            try:
+                msg = await websocket.receive()
+                if msg["type"] == "websocket.disconnect":
+                    break
+                raw = msg.get("bytes") or (msg.get("text") or "").encode()
+                if not raw:
+                    continue
+                try:
+                    parsed = json.loads(raw)
+                    if parsed.get("type") == "resize":
+                        cols = int(parsed.get("cols", 80))
+                        rows = int(parsed.get("rows", 24))
+                        await loop.run_in_executor(None, lambda: channel.resize_pty(width=cols, height=rows))
+                    continue
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    pass
+                await loop.run_in_executor(None, channel.send, raw)
+            except Exception:
+                break
+
+    send_task = asyncio.create_task(ssh_to_ws())
+    recv_task = asyncio.create_task(ws_to_ssh())
+    try:
+        _, pending = await asyncio.wait([send_task, recv_task], return_when=asyncio.FIRST_COMPLETED)
+        for t in pending:
+            t.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+    finally:
+        try:
+            channel.close()
+        except Exception:
+            pass
+        try:
+            ssh.close()
+        except Exception:
             pass
 
 
@@ -1601,9 +1844,31 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
 
 #view-konsole{margin:-1.5rem -1.75rem;height:calc(100vh - 95px);display:flex;flex-direction:column}
 .konsole-bar{display:flex;align-items:center;gap:.5rem;padding:.55rem 1.25rem;
-  background:#070d1a;border-bottom:1px solid #182a45}
+  background:#070d1a;border-bottom:1px solid #182a45;flex-wrap:wrap}
 .konsole-bar span{font-size:.72rem;color:#3a5a7a}
 #console-term{flex:1;min-height:0}
+/* ── Server ────────────────────────────────────────────── */
+.srv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:.75rem}
+.srvcard{background:linear-gradient(150deg,#0e1a2e,#0c1828);border:1px solid #182a45;
+  border-radius:12px;padding:1rem;display:flex;flex-direction:column;gap:.5rem}
+.srvcard-name{font-weight:700;font-size:.97rem;color:#dce8f8}
+.srvcard-host{font-size:.75rem;color:#4a6a8a}
+.srvcard-status{font-size:.7rem;display:inline-flex;align-items:center;gap:.3rem;
+  border-radius:20px;padding:.15rem .5rem;width:fit-content}
+.srvcard-status.online{background:rgba(34,197,94,.12);color:#4ade80}
+.srvcard-status.offline{background:rgba(239,68,68,.1);color:#f87171}
+.srvcard-status.checking{background:rgba(251,191,36,.1);color:#fbbf24}
+.srvcard-actions{display:flex;gap:.4rem;margin-top:.2rem;flex-wrap:wrap}
+/* Server modal */
+.srv-modal-row{display:flex;flex-direction:column;gap:.3rem;margin-bottom:.7rem}
+.srv-modal-row label{font-size:.72rem;font-weight:700;text-transform:uppercase;
+  letter-spacing:.06em;color:#4a6a8a}
+.srv-modal-row input,.srv-modal-row select,.srv-modal-row textarea{
+  background:#070d1a;border:1px solid #182a45;border-radius:8px;
+  color:#dce8f8;padding:.55rem .7rem;font-size:.85rem;width:100%;
+  transition:border-color .2s;resize:vertical}
+.srv-modal-row input:focus,.srv-modal-row select:focus,.srv-modal-row textarea:focus{
+  outline:none;border-color:#2a5aad}
 </style></head><body>
 
 <!-- Token / Registry Modal -->
@@ -1682,6 +1947,7 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
   <button class="tab active" onclick="switchTab('containers')" id="tab-containers">Container</button>
   <button class="tab" onclick="switchTab('stacks')" id="tab-stacks">Stacks</button>
   <button class="tab" onclick="switchTab('wartung')" id="tab-wartung">Wartung</button>
+  <button class="tab" onclick="switchTab('server')" id="tab-server">Server</button>
   <button class="tab" onclick="switchTab('konsole')" id="tab-konsole">Konsole</button>
 </div>
 <main>
@@ -1742,12 +2008,55 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
   </div>
 </div>
 
+<div id="view-server" style="display:none">
+  <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap">
+    <button class="tbtn" style="background:linear-gradient(135deg,#1e3a8a,#3b82f6)" onclick="openAddServerModal()">+ Server hinzufügen</button>
+  </div>
+  <div id="srv-grid" class="srv-grid"><div class="empty-state">lädt…</div></div>
+</div>
+
 <div id="view-konsole" style="display:none">
   <div class="konsole-bar">
     <span id="konsole-status">● Nicht verbunden</span>
+    <select id="konsole-server-select" style="background:#0e1a2e;border:1px solid #182a45;color:#dce8f8;border-radius:6px;padding:.25rem .5rem;font-size:.75rem;cursor:pointer" onchange="onServerSelectChange()">
+      <option value="">Lokal (dieser Server)</option>
+    </select>
     <button class="tbtn" id="konsole-reconnect" style="display:none;background:linear-gradient(135deg,#1e3a8a,#3b82f6);font-size:.72rem;padding:.28rem .6rem" onclick="connectConsole()">↺ Neu verbinden</button>
   </div>
   <div id="console-term"></div>
+</div>
+
+<!-- Add Server Modal -->
+<div id="add-server-modal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeAddServerModal()">
+  <div class="modal" style="width:480px;max-height:90vh;overflow-y:auto">
+    <h3 style="margin:0 0 1rem;font-size:1.05rem;color:#dce8f8">Server hinzufügen</h3>
+    <div class="srv-modal-row"><label>Name</label><input id="srv-name" type="text" placeholder="Mein Server"></div>
+    <div class="srv-modal-row"><label>Host / IP</label><input id="srv-host" type="text" placeholder="192.168.1.100"></div>
+    <div style="display:flex;gap:.5rem">
+      <div class="srv-modal-row" style="flex:1"><label>Port</label><input id="srv-port" type="number" value="22"></div>
+      <div class="srv-modal-row" style="flex:2"><label>Benutzer</label><input id="srv-user" type="text" placeholder="root"></div>
+    </div>
+    <div class="srv-modal-row">
+      <label>Authentifizierung</label>
+      <select id="srv-auth-type" onchange="onAuthTypeChange()">
+        <option value="key">SSH-Schlüssel (empfohlen)</option>
+        <option value="password">Passwort</option>
+      </select>
+    </div>
+    <div id="srv-key-row" class="srv-modal-row">
+      <label>Privater SSH-Schlüssel</label>
+      <textarea id="srv-ssh-key" rows="5" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;..."></textarea>
+    </div>
+    <div id="srv-pw-row" class="srv-modal-row" style="display:none">
+      <label>Passwort</label>
+      <input id="srv-password" type="password">
+    </div>
+    <div id="srv-add-err" style="color:#f87171;font-size:.8rem;min-height:1rem;margin:.3rem 0"></div>
+    <div style="display:flex;gap:.5rem;margin-top:.5rem">
+      <button class="tbtn" style="flex:1;background:linear-gradient(135deg,#1e3a8a,#3b82f6)" onclick="doAddServer()">Speichern</button>
+      <button class="tbtn" style="background:#0e1e35;color:#4a6a8a;border:1px solid #182a45" onclick="closeAddServerModal()">Abbrechen</button>
+    </div>
+  </div>
 </div>
 
 </main>
@@ -1769,7 +2078,7 @@ return `<div class="card"><div class="lbl">${lbl}</div><div class="val">${val}</
 let activeTab='containers',activeWartungTab='images';
 function switchTab(tab){
   activeTab=tab;
-  ['containers','stacks','wartung','konsole'].forEach(t=>{
+  ['containers','stacks','wartung','server','konsole'].forEach(t=>{
     document.getElementById('view-'+t).style.display=tab===t?'':'none';
     document.getElementById('tab-'+t).classList.toggle('active',tab===t);
   });
@@ -1778,6 +2087,7 @@ function switchTab(tab){
     if(activeWartungTab==='images')loadImages();
     else loadUpdateStatus();
   }
+  if(tab==='server')loadServers();
   if(tab==='konsole')initConsole();
 }
 function switchWartungTab(sub){
@@ -2286,6 +2596,117 @@ async function applyUpdate(){
   }catch(e){toast('Fehler: '+e,true)}
 }
 
+/* ── Server-Verwaltung ───────────────────────────────── */
+let _servers=[];
+async function loadServers(){
+  try{
+    const r=await fetch('/api/servers');
+    if(r.status===401){location.href='/login';return}
+    _servers=r.ok?await r.json():[];
+    renderServers();
+    populateServerSelect();
+  }catch(e){}
+}
+function renderServers(){
+  const grid=document.getElementById('srv-grid');
+  if(!_servers.length){
+    grid.innerHTML='<div class="empty-state">Noch keine Server konfiguriert.<br>Klicke "+ Server hinzufügen" um zu starten.</div>';
+    return;
+  }
+  grid.innerHTML=_servers.map(s=>`
+    <div class="srvcard">
+      <div class="srvcard-name">${esc(s.name)}</div>
+      <div class="srvcard-host">${esc(s.username)}@${esc(s.host)}:${s.port||22}</div>
+      <div class="srvcard-status checking" id="srv-status-${s.id}">⟳ Prüfe…</div>
+      <div class="srvcard-actions">
+        <button class="tbtn" style="font-size:.72rem;padding:.25rem .55rem;background:linear-gradient(135deg,#1e3a8a,#3b82f6)"
+          onclick="openServerConsole('${s.id}','${esc(s.name)}')">▶ Konsole</button>
+        <button class="tbtn" style="font-size:.72rem;padding:.25rem .55rem;background:#0e1e35;color:#4a6a8a;border:1px solid #182a45"
+          onclick="testServer('${s.id}')">↻ Test</button>
+        <button class="tbtn b-del" style="font-size:.72rem;padding:.25rem .55rem"
+          onclick="deleteServer('${s.id}','${esc(s.name)}')">✕</button>
+      </div>
+    </div>`).join('');
+  _servers.forEach(s=>testServer(s.id,true));
+}
+function esc(t){return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+async function testServer(id,silent){
+  const el=document.getElementById('srv-status-'+id);
+  if(el){el.className='srvcard-status checking';el.textContent='⟳ Prüfe…';}
+  try{
+    const r=await fetch('/api/servers/'+id+'/test',{method:'POST'});
+    if(el){
+      if(r.ok){el.className='srvcard-status online';el.textContent='● Online';}
+      else{el.className='srvcard-status offline';el.textContent='● Offline';}
+    }
+    if(!silent&&!r.ok){const j=await r.json().catch(()=>({}));toast('Verbindung fehlgeschlagen: '+(j.detail||r.status),true);}
+  }catch(e){if(el){el.className='srvcard-status offline';el.textContent='● Offline';}}
+}
+async function deleteServer(id,name){
+  if(!confirm('Server "'+name+'" entfernen?'))return;
+  const r=await fetch('/api/servers/'+id,{method:'DELETE'});
+  r.ok?toast('Server entfernt'):toast('Fehler',true);
+  loadServers();
+}
+function openServerConsole(id,name){
+  const sel=document.getElementById('konsole-server-select');
+  if(sel)sel.value=id;
+  switchTab('konsole');
+  if(_ws&&(_ws.readyState===WebSocket.OPEN||_ws.readyState===WebSocket.CONNECTING)){
+    _ws.close();_ws=null;
+  }
+  initConsole();
+}
+function openAddServerModal(){
+  document.getElementById('srv-name').value='';
+  document.getElementById('srv-host').value='';
+  document.getElementById('srv-port').value='22';
+  document.getElementById('srv-user').value='';
+  document.getElementById('srv-ssh-key').value='';
+  document.getElementById('srv-password').value='';
+  document.getElementById('srv-auth-type').value='key';
+  document.getElementById('srv-add-err').textContent='';
+  onAuthTypeChange();
+  document.getElementById('add-server-modal').style.display='';
+}
+function closeAddServerModal(){document.getElementById('add-server-modal').style.display='none'}
+function onAuthTypeChange(){
+  const t=document.getElementById('srv-auth-type').value;
+  document.getElementById('srv-key-row').style.display=t==='key'?'':'none';
+  document.getElementById('srv-pw-row').style.display=t==='password'?'':'none';
+}
+async function doAddServer(){
+  const name=document.getElementById('srv-name').value.trim();
+  const host=document.getElementById('srv-host').value.trim();
+  const port=document.getElementById('srv-port').value||'22';
+  const username=document.getElementById('srv-user').value.trim();
+  const auth_type=document.getElementById('srv-auth-type').value;
+  const err=document.getElementById('srv-add-err');
+  if(!name||!host||!username){err.textContent='Name, Host und Benutzer erforderlich';return}
+  const body={name,host,port:parseInt(port),username,auth_type};
+  if(auth_type==='key')body.ssh_key=document.getElementById('srv-ssh-key').value.trim();
+  else body.password=document.getElementById('srv-password').value;
+  const r=await fetch('/api/servers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const j=await r.json().catch(()=>({}));
+  if(r.ok){closeAddServerModal();toast('Server "'+name+'" hinzugefügt');loadServers();}
+  else{err.textContent=j.detail||'Fehler beim Speichern';}
+}
+function populateServerSelect(){
+  const sel=document.getElementById('konsole-server-select');
+  if(!sel)return;
+  const cur=sel.value;
+  sel.innerHTML='<option value="">Lokal (dieser Server)</option>'+
+    _servers.map(s=>`<option value="${s.id}">${esc(s.name)} (${esc(s.host)})</option>`).join('');
+  if(cur)sel.value=cur;
+}
+function onServerSelectChange(){
+  if(_ws&&(_ws.readyState===WebSocket.OPEN||_ws.readyState===WebSocket.CONNECTING)){
+    _ws.close();_ws=null;
+    if(_term)_term.write('\\r\\n\\x1b[33m[Server gewechselt – verbinde neu…]\\x1b[0m\\r\\n');
+  }
+  connectConsole();
+}
+
 /* ── Konsole ─────────────────────────────────────────── */
 let _term=null, _ws=null, _fitAddon=null, _xtermLoaded=false;
 
@@ -2347,7 +2768,11 @@ function initConsole(){
 function connectConsole(){
   if(_ws&&(_ws.readyState===WebSocket.OPEN||_ws.readyState===WebSocket.CONNECTING))return;
   const proto=location.protocol==='https:'?'wss':'ws';
-  const url=`${proto}://${location.host}/ws/console`;
+  const sel=document.getElementById('konsole-server-select');
+  const serverId=sel?sel.value:'';
+  const url=serverId
+    ?`${proto}://${location.host}/ws/remote-console/${serverId}`
+    :`${proto}://${location.host}/ws/console`;
   _ws=new WebSocket(url);
   _ws.binaryType='arraybuffer';
   const status=document.getElementById('konsole-status');

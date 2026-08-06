@@ -27,6 +27,23 @@ services:
       # Optional – mTLS aktivieren:
       # - "traefik.http.routers.dockpilot.tls.options=mtls@file"
 
+  # Updater-Sidecar: führt Self-Updates durch ohne dass dockpilot sich selbst töten muss.
+  # Starte ihn zusammen mit dockpilot – er schläft die meiste Zeit und fragt nur alle 8 Stunden nach Updates.
+  dockpilot-updater:
+    image: ghcr.io/linuxxunil1/dockpilot-updater:latest
+    # Alternativ lokal bauen:
+    # build:
+    #   context: ./updater
+    container_name: dockpilot-updater
+    restart: unless-stopped
+    environment:
+      - DOCKPILOT_CONTAINER=dockpilot            # Name des dockpilot-Containers
+      - CHECK_INTERVAL=28800                     # Prüfintervall in Sekunden (Standard: 8h)
+      - UPDATER_API_PORT=8081
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Kein Port-Mapping nötig – dockpilot erreicht den Updater über das Docker-Netzwerk
+
 volumes: {}
 
 networks:
