@@ -48,7 +48,8 @@ def _get_secret() -> bytes:
             return f.read().strip().encode()
     os.makedirs(DATA_DIR, exist_ok=True)
     secret = secrets.token_hex(32)
-    with open(SECRET_FILE, "w") as f:
+    fd = os.open(SECRET_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
         f.write(secret)
     return secret.encode()
 
