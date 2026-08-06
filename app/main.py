@@ -33,6 +33,7 @@ SAFE_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
 TOKENS_FILE    = os.path.join(DATA_DIR, "tokens.json")
 DOCKER_CFG_DIR = os.path.join(DATA_DIR, "docker")
 SERVERS_FILE   = os.path.join(DATA_DIR, "servers.json")
+MODE_FILE      = os.path.join(DATA_DIR, "mode.json")
 
 # Credentials — live aus Datei lesen, Fallback auf Env-Vars
 def _load_creds():
@@ -50,7 +51,34 @@ def _load_creds():
         os.environ.get("DASH_SECRET", "insecure-default-secret").encode(),
     )
 
+def _load_mode() -> dict:
+    if os.path.isfile(MODE_FILE):
+        with open(MODE_FILE) as f:
+            return json.load(f)
+    return {}
+
+
+def _save_mode(data: dict):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(MODE_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def get_dp_mode() -> str:
+    return _load_mode().get("mode", "standalone")
+
+
+def get_agent_token() -> str | None:
+    return _load_mode().get("agent_token")
+
+
 def needs_setup() -> bool:
+    if not os.path.isfile(MODE_FILE):
+        return True
+    mode_data = _load_mode()
+    mode = mode_data.get("mode", "standalone")
+    if mode == "agent":
+        return not mode_data.get("agent_token")
     return not os.path.isfile(CREDS_FILE)
 
 
@@ -130,6 +158,26 @@ def valid_token(token: str | None) -> bool:
 def require_auth(request: Request):
     if not valid_token(request.cookies.get(COOKIE)):
         raise HTTPException(status_code=401, detail="not authenticated")
+
+
+def _valid_bearer(request: Request) -> bool:
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return False
+    token = auth[7:]
+    agent_token = get_agent_token()
+    if not agent_token:
+        return False
+    return hmac.compare_digest(token.encode(), agent_token.encode())
+
+
+def require_auth_any(request: Request):
+    """Accept session cookie (UI) OR bearer token (agent API access from hub)."""
+    if valid_token(request.cookies.get(COOKIE)):
+        return
+    if _valid_bearer(request):
+        return
+    raise HTTPException(status_code=401, detail="not authenticated")
 
 
 # ----------------------------- Stats -----------------------------
@@ -360,6 +408,40 @@ def _update_scheduler():
 
 
 threading.Thread(target=_update_scheduler, daemon=True).start()
+
+
+def _agent_register_with_hub():
+    """Agent-Modus: Meldet sich beim Hub an, damit Hub die Agent-URL kennt."""
+    import urllib.request as ureq
+    import urllib.error
+    mode_data = _load_mode()
+    if mode_data.get("mode") != "agent":
+        return
+    hub_url = mode_data.get("hub_url", "").rstrip("/")
+    token = mode_data.get("agent_token", "")
+    agent_name = mode_data.get("agent_name", "")
+    own_url = os.environ.get("AGENT_URL", "").rstrip("/")
+    if not hub_url or not token:
+        return
+    body = json.dumps({"name": agent_name, "url": own_url}).encode()
+    for attempt in range(5):
+        try:
+            req = ureq.Request(
+                f"{hub_url}/api/agents/register",
+                data=body,
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                method="POST",
+            )
+            with ureq.urlopen(req, timeout=10) as r:
+                if r.status == 200:
+                    return
+        except Exception:
+            pass
+        time.sleep(30 * (attempt + 1))
+
+
+if get_dp_mode() == "agent":
+    threading.Thread(target=_agent_register_with_hub, daemon=True).start()
 
 
 # ----------------------------- Host-Statistik -----------------------------
@@ -651,11 +733,81 @@ async def setup_place_ca_cert(request: Request):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@app.post("/api/setup/mode")
+async def setup_save_mode(request: Request):
+    body = await request.json()
+    mode = body.get("mode", "").strip()
+    if mode not in ("standalone", "hub", "agent"):
+        raise HTTPException(status_code=400, detail="Ungültiger Modus")
+    data: dict = {"mode": mode}
+    if mode == "agent":
+        hub_url = body.get("hub_url", "").strip().rstrip("/")
+        if not hub_url:
+            raise HTTPException(status_code=400, detail="Hub-URL erforderlich")
+        agent_token = body.get("agent_token", "").strip() or secrets.token_urlsafe(32)
+        data["hub_url"] = hub_url
+        data["agent_token"] = agent_token
+        data["agent_name"] = body.get("agent_name", "").strip() or os.uname().nodename
+    _save_mode(data)
+    return {"ok": True, "mode": mode, "agent_token": data.get("agent_token")}
+
+
+@app.get("/api/setup/mode")
+def setup_get_mode():
+    return JSONResponse(_load_mode())
+
+
+@app.post("/api/agents/register")
+async def api_agent_register(request: Request):
+    """Hub-seitig: Agent meldet sich mit URL und Token an."""
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Bearer token required")
+    token = auth[7:]
+    body = await request.json()
+    agent_url = body.get("url", "").strip().rstrip("/")
+    agent_name = body.get("name", "")
+    servers = _load_servers()
+    for s in servers:
+        if s.get("type") == "agent" and hmac.compare_digest(s.get("token", "").encode(), token.encode()):
+            if agent_url:
+                s["url"] = agent_url
+            if agent_name:
+                s["name"] = agent_name
+            s["last_seen"] = time.time()
+            _save_servers(servers)
+            return {"ok": True}
+    raise HTTPException(status_code=401, detail="Unbekannter Agent-Token")
+
+
+@app.post("/api/servers/agent-invite")
+async def api_agent_invite(request: Request):
+    """Hub generiert einen Einladungs-Token für einen neuen Agent."""
+    require_auth(request)
+    body = await request.json()
+    name = body.get("name", "Neuer Agent").strip()
+    token = secrets.token_urlsafe(32)
+    server: dict = {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "type": "agent",
+        "token": token,
+        "url": "",
+        "last_seen": None,
+    }
+    servers = _load_servers()
+    servers.append(server)
+    _save_servers(servers)
+    return {"ok": True, "id": server["id"], "token": token}
+
+
 @app.get("/login", response_class=HTMLResponse)
 def login_page(error: str = ""):
     """Render login page; redirect to setup wizard if not yet configured."""
     if needs_setup():
         return RedirectResponse(url="/setup", status_code=303)
+    if get_dp_mode() == "agent":
+        return RedirectResponse(url="/", status_code=303)
     return LOGIN_HTML.replace("{{ERROR}}", html.escape(error))
 
 
@@ -683,6 +835,8 @@ def logout():
 def index(request: Request):
     if needs_setup():
         return RedirectResponse(url="/setup", status_code=303)
+    if get_dp_mode() == "agent":
+        return HTMLResponse(AGENT_HTML)
     if not valid_token(request.cookies.get(COOKIE)):
         return RedirectResponse(url="/login", status_code=303)
     return INDEX_HTML
@@ -690,7 +844,7 @@ def index(request: Request):
 
 @app.get("/api/containers")
 def api_containers(request: Request):
-    require_auth(request)
+    require_auth_any(request)
     containers = client.containers.list(all=True)
     with ThreadPoolExecutor(max_workers=8) as ex:
         data = list(ex.map(serialize, containers))
@@ -700,14 +854,14 @@ def api_containers(request: Request):
 
 @app.get("/api/host")
 def api_host(request: Request):
-    require_auth(request)
+    require_auth_any(request)
     return JSONResponse(host_stats())
 
 
 @app.get("/api/sizes")
 def api_sizes(request: Request):
     """Return disk sizes (RW layer + rootfs) for all containers."""
-    require_auth(request)
+    require_auth_any(request)
     raw = client.api.containers(all=True, size=True)
     out = {}
     for c in raw:
@@ -717,7 +871,7 @@ def api_sizes(request: Request):
 
 @app.post("/api/containers/{cid}/{action}")
 def api_action(cid: str, action: str, request: Request):
-    require_auth(request)
+    require_auth_any(request)
     try:
         c = client.containers.get(cid)
     except docker.errors.NotFound:
@@ -741,7 +895,7 @@ def api_action(cid: str, action: str, request: Request):
 @app.get("/api/stacks")
 def api_stacks(request: Request):
     """List all stacks (subdirectories with a docker-compose.yaml) in STACKS_DIR."""
-    require_auth(request)
+    require_auth_any(request)
     os.makedirs(STACKS_DIR, exist_ok=True)
     result = []
     try:
@@ -1006,10 +1160,41 @@ def _ssh_connect(server: dict):
     return ssh
 
 
+def _agent_http(server: dict, method: str, path: str, body: dict | None = None):
+    """Synchronous HTTP call from hub to an agent, returns parsed JSON."""
+    import urllib.request as ureq
+    import urllib.error
+    url = server.get("url", "").rstrip("/") + path
+    token = server.get("token", "")
+    payload = json.dumps(body).encode() if body else None
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    try:
+        req = ureq.Request(url, data=payload, headers=headers, method=method)
+        with ureq.urlopen(req, timeout=10) as r:
+            return json.loads(r.read())
+    except ureq.error.HTTPError as e:
+        raise HTTPException(status_code=e.code, detail=f"Agent: {e.reason}")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Agent nicht erreichbar: {exc}")
+
+
+@app.get("/api/servers/{server_id}/containers")
+def api_server_containers(server_id: str, request: Request):
+    require_auth(request)
+    server = _get_server(server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server nicht gefunden")
+    if server.get("type") != "agent":
+        raise HTTPException(status_code=400, detail="Nur für Agent-Server")
+    if not server.get("url"):
+        raise HTTPException(status_code=503, detail="Agent-URL unbekannt – Agent noch nicht registriert")
+    return JSONResponse(_agent_http(server, "GET", "/api/containers"))
+
+
 @app.get("/api/servers")
 def api_servers_list(request: Request):
     require_auth(request)
-    safe_keys = {"id", "name", "host", "port", "username", "auth_type"}
+    safe_keys = {"id", "name", "host", "port", "username", "auth_type", "type", "url", "last_seen"}
     return JSONResponse([{k: v for k, v in s.items() if k in safe_keys} for s in _load_servers()])
 
 
@@ -1017,24 +1202,41 @@ def api_servers_list(request: Request):
 async def api_server_add(request: Request):
     require_auth(request)
     body = await request.json()
+    srv_type = body.get("type", "ssh")  # "ssh" or "agent"
     name = body.get("name", "").strip()
-    host = body.get("host", "").strip()
-    username = body.get("username", "").strip()
-    if not name or not host or not username:
-        raise HTTPException(status_code=400, detail="Name, Host und Benutzer sind erforderlich")
-    auth_type = body.get("auth_type", "key")
-    server: dict = {
-        "id": str(uuid.uuid4()),
-        "name": name,
-        "host": host,
-        "port": int(body.get("port", 22)),
-        "username": username,
-        "auth_type": auth_type,
-    }
-    if auth_type == "password":
-        server["password"] = body.get("password", "")
+    if not name:
+        raise HTTPException(status_code=400, detail="Name ist erforderlich")
+    if srv_type == "agent":
+        token = body.get("token", "").strip()
+        if not token:
+            raise HTTPException(status_code=400, detail="Token ist erforderlich")
+        server: dict = {
+            "id": str(uuid.uuid4()),
+            "name": name,
+            "type": "agent",
+            "token": token,
+            "url": body.get("url", "").strip().rstrip("/"),
+            "last_seen": None,
+        }
     else:
-        server["ssh_key"] = body.get("ssh_key", "")
+        host = body.get("host", "").strip()
+        username = body.get("username", "").strip()
+        if not host or not username:
+            raise HTTPException(status_code=400, detail="Host und Benutzer sind erforderlich")
+        auth_type = body.get("auth_type", "key")
+        server = {
+            "id": str(uuid.uuid4()),
+            "name": name,
+            "type": "ssh",
+            "host": host,
+            "port": int(body.get("port", 22)),
+            "username": username,
+            "auth_type": auth_type,
+        }
+        if auth_type == "password":
+            server["password"] = body.get("password", "")
+        else:
+            server["ssh_key"] = body.get("ssh_key", "")
     servers = _load_servers()
     servers.append(server)
     _save_servers(servers)
@@ -1077,12 +1279,34 @@ def api_server_delete(server_id: str, request: Request):
     return {"ok": True}
 
 
+@app.patch("/api/servers/{server_id}")
+async def api_server_patch(server_id: str, request: Request):
+    require_auth(request)
+    body = await request.json()
+    servers = _load_servers()
+    for s in servers:
+        if s.get("id") == server_id:
+            if "name" in body:
+                s["name"] = str(body["name"])[:128]
+            _save_servers(servers)
+            return {"ok": True}
+    raise HTTPException(status_code=404, detail="Server nicht gefunden")
+
+
 @app.post("/api/servers/{server_id}/test")
 def api_server_test(server_id: str, request: Request):
     require_auth(request)
     server = _get_server(server_id)
     if not server:
         raise HTTPException(status_code=404, detail="Server nicht gefunden")
+    if server.get("type") == "agent":
+        if not server.get("url"):
+            raise HTTPException(status_code=503, detail="Agent noch nicht registriert (URL unbekannt)")
+        try:
+            _agent_http(server, "GET", "/api/host")
+            return {"ok": True}
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
         ssh = _ssh_connect(server)
         ssh.close()
@@ -1217,10 +1441,13 @@ def api_self_update_apply(request: Request):
 
 
 @app.websocket("/ws/console")
-async def ws_console(websocket: WebSocket):
+async def ws_console(websocket: WebSocket, token: str = ""):
     await websocket.accept()
-    token = websocket.cookies.get(COOKIE)
-    if not valid_token(token):
+    cookie_token = websocket.cookies.get(COOKIE)
+    bearer_token = get_agent_token()
+    cookie_ok = valid_token(cookie_token)
+    bearer_ok = bool(bearer_token and token and hmac.compare_digest(token.encode(), bearer_token.encode()))
+    if not (cookie_ok or bearer_ok):
         await websocket.close(code=4001)
         return
 
@@ -1317,6 +1544,63 @@ async def ws_remote_console(websocket: WebSocket, server_id: str):
         return
 
     loop = asyncio.get_running_loop()
+
+    # Agent-type: proxy WebSocket to agent's /ws/console endpoint
+    if server.get("type") == "agent":
+        agent_url = server.get("url", "")
+        agent_token = server.get("token", "")
+        if not agent_url:
+            await websocket.send_text("\r\n\x1b[31m[Agent noch nicht registriert]\x1b[0m\r\n")
+            await websocket.close()
+            return
+        ws_url = agent_url.replace("https://", "wss://").replace("http://", "ws://")
+        ws_url = f"{ws_url}/ws/console?token={agent_token}"
+        try:
+            import websockets as _ws_lib
+        except ImportError:
+            await websocket.send_text("\r\n\x1b[31m[websockets-Bibliothek nicht installiert]\x1b[0m\r\n")
+            await websocket.close()
+            return
+        try:
+            agent_ws = await _ws_lib.connect(ws_url)
+        except Exception as exc:
+            await websocket.send_text(f"\r\n\x1b[31m[Agent-Verbindungsfehler: {exc}]\x1b[0m\r\n")
+            await websocket.close()
+            return
+
+        async def agent_to_browser():
+            try:
+                async for msg in agent_ws:
+                    if isinstance(msg, bytes):
+                        await websocket.send_bytes(msg)
+                    else:
+                        await websocket.send_text(msg)
+            except Exception:
+                pass
+
+        async def browser_to_agent():
+            while True:
+                try:
+                    msg = await websocket.receive()
+                    if msg["type"] == "websocket.disconnect":
+                        break
+                    raw = msg.get("bytes") or (msg.get("text") or "").encode()
+                    if raw:
+                        await agent_ws.send(raw)
+                except Exception:
+                    break
+
+        t1 = asyncio.create_task(agent_to_browser())
+        t2 = asyncio.create_task(browser_to_agent())
+        try:
+            _, pending = await asyncio.wait([t1, t2], return_when=asyncio.FIRST_COMPLETED)
+            for t in pending:
+                t.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+        finally:
+            await agent_ws.close()
+        return
+
     try:
         ssh = await loop.run_in_executor(None, _ssh_connect, server)
     except ImportError:
@@ -1412,8 +1696,8 @@ SETUP_HTML = """<!doctype html><html lang="de"><head><meta charset="utf-8">
 <title>dockpilot · Setup</title><style>
 *{box-sizing:border-box;user-select:none}
 body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
-  background:#070d1a;color:#dce8f8;display:flex;min-height:100vh;align-items:center;justify-content:center}
-.wrap{width:420px}
+  background:#070d1a;color:#dce8f8;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:1rem}
+.wrap{width:440px;max-width:100%}
 .logo{text-align:center;font-size:1.5rem;font-weight:700;margin-bottom:.5rem;letter-spacing:-.02em}
 .logo span{color:#3b82f6}
 .sub{text-align:center;font-size:.85rem;color:#4a6a8a;margin-bottom:2rem}
@@ -1425,7 +1709,7 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,
 .card{background:linear-gradient(150deg,#0e1a2e,#0c1828);border:1px solid #182a45;
   padding:2rem;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
 .card h2{margin:0 0 .4rem;font-size:1.15rem;font-weight:700;color:#f0f6ff}
-.card p{margin:0 0 1.5rem;font-size:.85rem;color:#4a6a8a;line-height:1.6}
+.card p{margin:0 0 1rem;font-size:.85rem;color:#4a6a8a;line-height:1.6}
 label{display:block;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
   margin:.9rem 0 .3rem;color:#4a6a8a}
 input[type=text],input[type=password]{width:100%;padding:.65rem .9rem;border-radius:9px;
@@ -1438,7 +1722,6 @@ input:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgba(59,130,2
 .btn:hover{filter:brightness(1.12)}
 .btn:active{transform:scale(.98)}
 .btn:disabled{opacity:.4;cursor:not-allowed;filter:none}
-.btn-sec{background:linear-gradient(135deg,#1e293b,#334155)}
 .err{color:#f87171;font-size:.82rem;margin-top:.75rem;min-height:1rem}
 .cert-box{margin-top:1.25rem;background:#060c18;border:1px solid #182a45;border-radius:10px;padding:1.1rem}
 .cert-box .pw{font-family:monospace;font-size:.88rem;background:#0a1220;padding:.4rem .7rem;
@@ -1454,18 +1737,58 @@ input:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgba(59,130,2
 .skip a{font-size:.82rem;color:#3a5a7a;cursor:pointer;text-decoration:underline}
 .skip a:hover{color:#8eafd4}
 .done-icon{text-align:center;font-size:3rem;margin-bottom:.75rem}
+/* Mode selection */
+.mode-cards{display:flex;flex-direction:column;gap:.6rem;margin:.5rem 0 .25rem}
+.mode-card{border:2px solid #182a45;border-radius:12px;padding:.85rem 1rem;cursor:pointer;
+  transition:border-color .2s,background .2s;display:flex;align-items:flex-start;gap:.75rem}
+.mode-card:hover{border-color:#2a4060}
+.mode-card.selected{border-color:#3b82f6;background:rgba(59,130,246,.07)}
+.mode-icon{font-size:1.4rem;line-height:1;flex-shrink:0;margin-top:.1rem}
+.mode-title{font-size:.88rem;font-weight:700;color:#f0f6ff;margin-bottom:.18rem}
+.mode-desc{font-size:.76rem;color:#4a6a8a;line-height:1.45}
+/* Agent done info box */
+.info-box{background:#060c18;border:1px solid #182a45;border-radius:10px;padding:.9rem 1rem;margin-top:.75rem}
+.info-box ol{margin:.4rem 0 0;padding-left:1.2rem;font-size:.8rem;color:#4a6a8a;line-height:1.8}
+.info-box ol li strong{color:#dce8f8}
 </style></head>
 <body><div class="wrap">
 <div class="logo">🐳 dock<span>pilot</span></div>
 <div class="sub">Ersteinrichtung</div>
-<div class="steps">
-  <div class="step active" id="s1">1</div>
-  <div class="step" id="s2">2</div>
-  <div class="step" id="s3">3</div>
+<div class="steps" id="step-indicators"></div>
+
+<!-- Panel 0: Modus wählen -->
+<div class="card" id="panel-mode">
+  <h2>Installationsmodus</h2>
+  <p>Wie soll dieser dockpilot-Server betrieben werden?</p>
+  <div class="mode-cards">
+    <div class="mode-card" id="mc-standalone" onclick="selectMode('standalone')">
+      <div class="mode-icon">🖥️</div>
+      <div>
+        <div class="mode-title">Standalone</div>
+        <div class="mode-desc">Einzelserver — verwalte nur diesen Host. Die einfachste Installation.</div>
+      </div>
+    </div>
+    <div class="mode-card" id="mc-hub" onclick="selectMode('hub')">
+      <div class="mode-icon">🌐</div>
+      <div>
+        <div class="mode-title">Hub (Hauptserver)</div>
+        <div class="mode-desc">Zentrales Dashboard — verwalte diesen und weitere Remote-Server.</div>
+      </div>
+    </div>
+    <div class="mode-card" id="mc-agent" onclick="selectMode('agent')">
+      <div class="mode-icon">🔌</div>
+      <div>
+        <div class="mode-title">Agent (Client)</div>
+        <div class="mode-desc">Wird vom Hub gesteuert — kein eigenes Dashboard, verbindet sich automatisch.</div>
+      </div>
+    </div>
+  </div>
+  <button class="btn" id="mode-next-btn" onclick="modeNext()" disabled>Weiter →</button>
+  <div class="err" id="err-mode"></div>
 </div>
 
-<!-- Step 1: Zugangsdaten -->
-<div class="card" id="step1">
+<!-- Panel 1a: Zugangsdaten (Standalone / Hub) -->
+<div class="card" id="panel-creds" style="display:none">
   <h2>Zugangsdaten festlegen</h2>
   <p>Wähle einen Benutzernamen und ein sicheres Passwort für den Login.</p>
   <label>Benutzername</label>
@@ -1478,8 +1801,8 @@ input:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgba(59,130,2
   <div class="err" id="err1"></div>
 </div>
 
-<!-- Step 2: mTLS-Zertifikat -->
-<div class="card" id="step2" style="display:none">
+<!-- Panel 2a: mTLS-Zertifikat (Standalone / Hub) -->
+<div class="card" id="panel-mtls" style="display:none">
   <h2>mTLS-Zertifikat <span style="font-size:.72rem;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.2);padding:.1rem .5rem;border-radius:5px;color:#60a5fa;font-weight:500;vertical-align:middle">optional</span></h2>
   <p>Schütze deinen Zugang mit einem Browser-Zertifikat. Ohne gültiges Zertifikat kommt niemand zur Login-Seite — auch mit gestohlenen Zugangsdaten nicht.</p>
   <button class="btn" id="gen-btn" onclick="generateCert()">Zertifikat generieren</button>
@@ -1491,8 +1814,6 @@ input:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgba(59,130,2
       <a href="/api/setup/download/ca.crt" download>↓ ca.crt</a>
     </div>
     <div id="dl-hint" style="font-size:.75rem;color:#f59e0b;margin-top:.5rem">⬆ client.p12 herunterladen um fortzufahren</div>
-
-    <!-- Auto-Deploy -->
     <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid #182a45">
       <div style="font-size:.78rem;color:#4a6a8a;margin-bottom:.6rem">ca.crt automatisch ablegen:</div>
       <div id="proxy-status" style="font-size:.82rem;color:#3a5a7a">
@@ -1507,7 +1828,6 @@ input:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgba(59,130,2
       </div>
       <div id="place-result" style="margin-top:.6rem;font-size:.8rem;display:none"></div>
     </div>
-
     <div class="note">
       <strong style="color:#dce8f8">Manuelle Schritte nach dem Ablegen:</strong><br>
       1. <code>client.p12</code> im Browser/OS importieren<br>
@@ -1515,27 +1835,103 @@ input:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgba(59,130,2
       3. <code>tls.options</code>-Label in <code>docker-compose.yaml</code> einkommentieren
     </div>
   </div>
-  <button class="btn" id="finish-btn" onclick="finishSetup()" style="margin-top:.85rem" disabled>Abschließen →</button>
-  <div class="skip"><a onclick="finishSetup()">Diesen Schritt überspringen</a></div>
+  <button class="btn" id="finish-btn" onclick="advancePanel()" style="margin-top:.85rem" disabled>Abschließen →</button>
+  <div class="skip"><a onclick="advancePanel()">Diesen Schritt überspringen</a></div>
 </div>
 
-<!-- Step 3: Fertig -->
-<div class="card" id="step3" style="display:none">
+<!-- Panel 3a: Fertig (Standalone / Hub) -->
+<div class="card" id="panel-done-normal" style="display:none">
   <div class="done-icon">✓</div>
   <h2 style="text-align:center">Setup abgeschlossen</h2>
   <p style="text-align:center">Zugangsdaten gespeichert. Du kannst dich jetzt einloggen.</p>
   <a href="/login"><button class="btn">Zum Login →</button></a>
 </div>
 
+<!-- Panel 1b: Hub-Verbindung (Agent) -->
+<div class="card" id="panel-agent" style="display:none">
+  <h2>Hub-Verbindung einrichten</h2>
+  <p>Gib die URL des Hub-Servers und den dort generierten Token ein.<br>
+     Den Token erhältst du auf dem Hub unter <strong style="color:#dce8f8">Server → Agent einladen</strong>.</p>
+  <label>Hub-URL</label>
+  <input type="text" id="ag-hub-url" placeholder="https://dockpilot.example.com">
+  <label>Agent-Token</label>
+  <input type="text" id="ag-token" placeholder="Token vom Hub einfügen" style="user-select:text;font-family:monospace;font-size:.82rem">
+  <label>Agent-Name <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+  <input type="text" id="ag-name" placeholder="mein-server-02">
+  <button class="btn" onclick="saveAgentMode()">Verbinden →</button>
+  <div class="err" id="err-agent"></div>
+</div>
+
+<!-- Panel 2b: Fertig (Agent) -->
+<div class="card" id="panel-done-agent" style="display:none">
+  <div class="done-icon">🔌</div>
+  <h2 style="text-align:center">Agent eingerichtet</h2>
+  <p style="text-align:center">Dieser Server verbindet sich jetzt mit dem Hub.<br>
+    Das vollständige Dashboard ist auf dem Hub-Server verfügbar.</p>
+  <div class="info-box">
+    <div style="font-size:.78rem;font-weight:700;color:#dce8f8;margin-bottom:.25rem">Nächste Schritte auf dem Hub:</div>
+    <ol>
+      <li>Hub-Dashboard öffnen → Tab <strong>Server</strong></li>
+      <li><strong>Agent einladen</strong> klicken, denselben Token eingeben</li>
+      <li>Agent erscheint nach dem ersten Verbindungsversuch (bis zu 30 Sek.)</li>
+    </ol>
+  </div>
+  <a href="/"><button class="btn" style="margin-top:1.25rem">Fertig →</button></a>
+</div>
+
 </div>
 <script>
-function setStep(n){
-  [1,2,3].forEach(i=>{
-    const s=document.getElementById('step'+i),b=document.getElementById('s'+i);
-    s.style.display=i===n?'':'none';
-    b.className='step'+(i<n?' done':i===n?' active':'');
-  });
+let selectedMode=null;
+const FLOWS={
+  standalone:['panel-mode','panel-creds','panel-mtls','panel-done-normal'],
+  hub:       ['panel-mode','panel-creds','panel-mtls','panel-done-normal'],
+  agent:     ['panel-mode','panel-agent','panel-done-agent'],
+};
+let curFlow=FLOWS.standalone, curIdx=0;
+
+function renderIndicators(total,active){
+  const el=document.getElementById('step-indicators');
+  el.innerHTML='';
+  for(let i=0;i<total;i++){
+    const d=document.createElement('div');
+    d.className='step'+(i<active?' done':i===active?' active':'');
+    d.textContent=i+1;
+    el.appendChild(d);
+  }
 }
+
+function showPanel(idx){
+  curIdx=idx;
+  const all=['panel-mode','panel-creds','panel-mtls','panel-done-normal','panel-agent','panel-done-agent'];
+  all.forEach(id=>{const e=document.getElementById(id);if(e)e.style.display='none';});
+  if(idx<curFlow.length){
+    document.getElementById(curFlow[idx]).style.display='';
+    renderIndicators(curFlow.length,idx);
+  }
+}
+
+function selectMode(m){
+  selectedMode=m;
+  ['standalone','hub','agent'].forEach(x=>document.getElementById('mc-'+x).classList.toggle('selected',x===m));
+  document.getElementById('mode-next-btn').disabled=false;
+  renderIndicators(FLOWS[m].length,0);
+}
+
+async function modeNext(){
+  if(!selectedMode)return;
+  curFlow=FLOWS[selectedMode];
+  const err=document.getElementById('err-mode');
+  err.textContent='';
+  if(selectedMode!=='agent'){
+    try{
+      const r=await fetch('/api/setup/mode',{method:'POST',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:selectedMode})});
+      if(!r.ok){const j=await r.json().catch(()=>({}));err.textContent=j.detail||'Fehler';return}
+    }catch(e){err.textContent='Netzwerkfehler: '+e.message;return}
+  }
+  showPanel(1);
+}
+
 async function saveCredentials(){
   const user=document.getElementById('su-user').value.trim();
   const pass=document.getElementById('su-pass').value;
@@ -1548,10 +1944,28 @@ async function saveCredentials(){
   try{
     const r=await fetch('/api/setup/credentials',{method:'POST',
       headers:{'Content-Type':'application/json'},body:JSON.stringify({user,password:pass})});
-    if(r.ok){setStep(2)}
+    if(r.ok){showPanel(2)}
     else{const j=await r.json().catch(()=>({}));err.textContent=j.detail||'Fehler'}
   }catch(e){err.textContent='Netzwerkfehler: '+e.message}
 }
+
+async function saveAgentMode(){
+  const hubUrl=document.getElementById('ag-hub-url').value.trim();
+  const token=document.getElementById('ag-token').value.trim();
+  const name=document.getElementById('ag-name').value.trim();
+  const err=document.getElementById('err-agent');
+  if(!hubUrl){err.textContent='Hub-URL ist erforderlich.';return}
+  if(!token){err.textContent='Agent-Token ist erforderlich.';return}
+  err.textContent='';
+  try{
+    const r=await fetch('/api/setup/mode',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({mode:'agent',hub_url:hubUrl,agent_token:token,agent_name:name})});
+    if(r.ok){showPanel(2)}
+    else{const j=await r.json().catch(()=>({}));err.textContent=j.detail||'Fehler'}
+  }catch(e){err.textContent='Netzwerkfehler: '+e.message}
+}
+
 async function generateCert(){
   const btn=document.getElementById('gen-btn');
   btn.disabled=true;btn.textContent='⟳ Generiere…';
@@ -1624,7 +2038,10 @@ function markDownloaded(){
   document.getElementById('finish-btn').disabled=false;
   document.getElementById('dl-hint').style.display='none';
 }
-function finishSetup(){setStep(3)}
+function advancePanel(){showPanel(curIdx+1)}
+
+// Init — show mode selector
+renderIndicators(3,0);
 </script></body></html>"""
 
 LOGIN_HTML = """<!doctype html><html lang="de"><head><meta charset="utf-8">
@@ -2010,7 +2427,8 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
 
 <div id="view-server" style="display:none">
   <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap">
-    <button class="tbtn" style="background:linear-gradient(135deg,#1e3a8a,#3b82f6)" onclick="openAddServerModal()">+ Server hinzufügen</button>
+    <button class="tbtn" style="background:linear-gradient(135deg,#1e3a8a,#3b82f6)" onclick="openAddServerModal('ssh')">+ SSH-Server</button>
+    <button class="tbtn" style="background:linear-gradient(135deg,#6d28d9,#a78bfa)" onclick="openAddServerModal('agent')">+ Agent einladen</button>
   </div>
   <div id="srv-grid" class="srv-grid"><div class="empty-state">lädt…</div></div>
 </div>
@@ -2029,31 +2447,49 @@ textarea.editor:focus{outline:none;border-color:#2a5aad;box-shadow:0 0 0 3px rgb
 <!-- Add Server Modal -->
 <div id="add-server-modal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeAddServerModal()">
   <div class="modal" style="width:480px;max-height:90vh;overflow-y:auto">
-    <h3 style="margin:0 0 1rem;font-size:1.05rem;color:#dce8f8">Server hinzufügen</h3>
-    <div class="srv-modal-row"><label>Name</label><input id="srv-name" type="text" placeholder="Mein Server"></div>
-    <div class="srv-modal-row"><label>Host / IP</label><input id="srv-host" type="text" placeholder="192.168.1.100"></div>
-    <div style="display:flex;gap:.5rem">
-      <div class="srv-modal-row" style="flex:1"><label>Port</label><input id="srv-port" type="number" value="22"></div>
-      <div class="srv-modal-row" style="flex:2"><label>Benutzer</label><input id="srv-user" type="text" placeholder="root"></div>
+    <h3 id="srv-modal-title" style="margin:0 0 1rem;font-size:1.05rem;color:#dce8f8">Server hinzufügen</h3>
+    <!-- SSH fields -->
+    <div id="srv-ssh-fields">
+      <div class="srv-modal-row"><label>Name</label><input id="srv-name" type="text" placeholder="Mein Server"></div>
+      <div class="srv-modal-row"><label>Host / IP</label><input id="srv-host" type="text" placeholder="192.168.1.100"></div>
+      <div style="display:flex;gap:.5rem">
+        <div class="srv-modal-row" style="flex:1"><label>Port</label><input id="srv-port" type="number" value="22"></div>
+        <div class="srv-modal-row" style="flex:2"><label>Benutzer</label><input id="srv-user" type="text" placeholder="root"></div>
+      </div>
+      <div class="srv-modal-row">
+        <label>Authentifizierung</label>
+        <select id="srv-auth-type" onchange="onAuthTypeChange()">
+          <option value="key">SSH-Schlüssel (empfohlen)</option>
+          <option value="password">Passwort</option>
+        </select>
+      </div>
+      <div id="srv-key-row" class="srv-modal-row">
+        <label>Privater SSH-Schlüssel</label>
+        <textarea id="srv-ssh-key" rows="5" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;..."></textarea>
+      </div>
+      <div id="srv-pw-row" class="srv-modal-row" style="display:none">
+        <label>Passwort</label>
+        <input id="srv-password" type="password">
+      </div>
     </div>
-    <div class="srv-modal-row">
-      <label>Authentifizierung</label>
-      <select id="srv-auth-type" onchange="onAuthTypeChange()">
-        <option value="key">SSH-Schlüssel (empfohlen)</option>
-        <option value="password">Passwort</option>
-      </select>
-    </div>
-    <div id="srv-key-row" class="srv-modal-row">
-      <label>Privater SSH-Schlüssel</label>
-      <textarea id="srv-ssh-key" rows="5" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;..."></textarea>
-    </div>
-    <div id="srv-pw-row" class="srv-modal-row" style="display:none">
-      <label>Passwort</label>
-      <input id="srv-password" type="password">
+    <!-- Agent fields -->
+    <div id="srv-agent-fields" style="display:none">
+      <div class="srv-modal-row"><label>Agent-Name</label><input id="srv-agent-name" type="text" placeholder="mein-server-02"></div>
+      <div id="srv-agent-token-box" style="display:none">
+        <label>Einladungs-Token</label>
+        <div style="background:#060c18;border:1px solid #182a45;border-radius:8px;padding:.6rem .85rem;
+          font-family:monospace;font-size:.82rem;color:#60a5fa;word-break:break-all;user-select:text;margin-top:.2rem"
+          id="srv-agent-token-val"></div>
+        <div style="font-size:.74rem;color:#3a5a7a;margin-top:.4rem;line-height:1.5">
+          Diesen Token beim Setup des Agent-Servers eingeben (Agent-Modus → Hub-Verbindung).
+        </div>
+      </div>
+      <div id="srv-agent-token-loading" style="font-size:.82rem;color:#4a6a8a;padding:.5rem 0">⟳ Generiere Token…</div>
     </div>
     <div id="srv-add-err" style="color:#f87171;font-size:.8rem;min-height:1rem;margin:.3rem 0"></div>
     <div style="display:flex;gap:.5rem;margin-top:.5rem">
-      <button class="tbtn" style="flex:1;background:linear-gradient(135deg,#1e3a8a,#3b82f6)" onclick="doAddServer()">Speichern</button>
+      <button class="tbtn" id="srv-save-btn" style="flex:1;background:linear-gradient(135deg,#1e3a8a,#3b82f6)" onclick="doAddServer()">Speichern</button>
+      <button class="tbtn" id="srv-done-btn" style="flex:1;background:linear-gradient(135deg,#166534,#22c55e);display:none" onclick="closeAddServerModal()">Fertig ✓</button>
       <button class="tbtn" style="background:#0e1e35;color:#4a6a8a;border:1px solid #182a45" onclick="closeAddServerModal()">Abbrechen</button>
     </div>
   </div>
@@ -2610,23 +3046,31 @@ async function loadServers(){
 function renderServers(){
   const grid=document.getElementById('srv-grid');
   if(!_servers.length){
-    grid.innerHTML='<div class="empty-state">Noch keine Server konfiguriert.<br>Klicke "+ Server hinzufügen" um zu starten.</div>';
+    grid.innerHTML='<div class="empty-state">Noch keine Server konfiguriert.<br>Verwende "+ SSH-Server" oder "+ Agent einladen" um zu starten.</div>';
     return;
   }
-  grid.innerHTML=_servers.map(s=>`
-    <div class="srvcard">
+  grid.innerHTML=_servers.map(s=>{
+    const isAgent=s.type==='agent';
+    const hostLine=isAgent
+      ?`<div class="srvcard-host" style="color:#a78bfa">🔌 DockPilot-Agent</div>`
+      :`<div class="srvcard-host">${esc(s.username||'')}@${esc(s.host||'')}:${s.port||22}</div>`;
+    const consolBtn=isAgent&&!s.url
+      ?`<button class="tbtn" style="font-size:.72rem;padding:.25rem .55rem;background:#0e1e35;color:#3a5a7a;border:1px solid #182a45" disabled title="Agent noch nicht verbunden">▶ Konsole</button>`
+      :`<button class="tbtn" style="font-size:.72rem;padding:.25rem .55rem;background:linear-gradient(135deg,#1e3a8a,#3b82f6)"
+          onclick="openServerConsole('${s.id}','${esc(s.name)}')">▶ Konsole</button>`;
+    return `<div class="srvcard">
       <div class="srvcard-name">${esc(s.name)}</div>
-      <div class="srvcard-host">${esc(s.username)}@${esc(s.host)}:${s.port||22}</div>
+      ${hostLine}
       <div class="srvcard-status checking" id="srv-status-${s.id}">⟳ Prüfe…</div>
       <div class="srvcard-actions">
-        <button class="tbtn" style="font-size:.72rem;padding:.25rem .55rem;background:linear-gradient(135deg,#1e3a8a,#3b82f6)"
-          onclick="openServerConsole('${s.id}','${esc(s.name)}')">▶ Konsole</button>
+        ${consolBtn}
         <button class="tbtn" style="font-size:.72rem;padding:.25rem .55rem;background:#0e1e35;color:#4a6a8a;border:1px solid #182a45"
           onclick="testServer('${s.id}')">↻ Test</button>
         <button class="tbtn b-del" style="font-size:.72rem;padding:.25rem .55rem"
           onclick="deleteServer('${s.id}','${esc(s.name)}')">✕</button>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   _servers.forEach(s=>testServer(s.id,true));
 }
 function esc(t){return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
@@ -2657,19 +3101,59 @@ function openServerConsole(id,name){
   }
   initConsole();
 }
-function openAddServerModal(){
-  document.getElementById('srv-name').value='';
-  document.getElementById('srv-host').value='';
-  document.getElementById('srv-port').value='22';
-  document.getElementById('srv-user').value='';
-  document.getElementById('srv-ssh-key').value='';
-  document.getElementById('srv-password').value='';
-  document.getElementById('srv-auth-type').value='key';
+let _addSrvType='ssh';
+async function openAddServerModal(type){
+  _addSrvType=type||'ssh';
+  const isAgent=_addSrvType==='agent';
+  document.getElementById('srv-modal-title').textContent=isAgent?'Agent einladen':'SSH-Server hinzufügen';
+  document.getElementById('srv-ssh-fields').style.display=isAgent?'none':'';
+  document.getElementById('srv-agent-fields').style.display=isAgent?'':'none';
+  document.getElementById('srv-save-btn').style.display=isAgent?'none':'';
+  document.getElementById('srv-done-btn').style.display='none';
   document.getElementById('srv-add-err').textContent='';
-  onAuthTypeChange();
+  if(!isAgent){
+    document.getElementById('srv-name').value='';
+    document.getElementById('srv-host').value='';
+    document.getElementById('srv-port').value='22';
+    document.getElementById('srv-user').value='';
+    document.getElementById('srv-ssh-key').value='';
+    document.getElementById('srv-password').value='';
+    document.getElementById('srv-auth-type').value='key';
+    onAuthTypeChange();
+  } else {
+    document.getElementById('srv-agent-name').value='';
+    document.getElementById('srv-agent-token-box').style.display='none';
+    document.getElementById('srv-agent-token-loading').style.display='';
+    document.getElementById('add-server-modal').style.display='';
+    // Generate invite token immediately
+    try{
+      const r=await fetch('/api/servers/agent-invite',{method:'POST',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Neuer Agent'})});
+      if(r.ok){
+        const j=await r.json();
+        document.getElementById('srv-agent-token-val').textContent=j.token;
+        document.getElementById('srv-agent-token-box').style.display='';
+        document.getElementById('srv-agent-token-loading').style.display='none';
+        document.getElementById('srv-done-btn').style.display='';
+        // Update server name from input if user types it
+        document.getElementById('srv-agent-name').oninput=function(){
+          if(j.id)fetch('/api/servers/'+j.id,{method:'PATCH',
+            headers:{'Content-Type':'application/json'},body:JSON.stringify({name:this.value||'Agent'})}).catch(()=>{});
+        };
+        loadServers();
+      }else{
+        document.getElementById('srv-agent-token-loading').textContent='Fehler beim Generieren';
+        document.getElementById('srv-done-btn').style.display='';
+      }
+    }catch(e){
+      document.getElementById('srv-agent-token-loading').textContent='Netzwerkfehler';
+      document.getElementById('srv-done-btn').style.display='';
+    }
+    return;
+  }
   document.getElementById('add-server-modal').style.display='';
 }
-function closeAddServerModal(){document.getElementById('add-server-modal').style.display='none'}
+function closeAddServerModal(){document.getElementById('add-server-modal').style.display='none';loadServers();}
 function onAuthTypeChange(){
   const t=document.getElementById('srv-auth-type').value;
   document.getElementById('srv-key-row').style.display=t==='key'?'':'none';
@@ -2683,12 +3167,12 @@ async function doAddServer(){
   const auth_type=document.getElementById('srv-auth-type').value;
   const err=document.getElementById('srv-add-err');
   if(!name||!host||!username){err.textContent='Name, Host und Benutzer erforderlich';return}
-  const body={name,host,port:parseInt(port),username,auth_type};
+  const body={name,host,port:parseInt(port),username,auth_type,type:'ssh'};
   if(auth_type==='key')body.ssh_key=document.getElementById('srv-ssh-key').value.trim();
   else body.password=document.getElementById('srv-password').value;
   const r=await fetch('/api/servers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));
-  if(r.ok){closeAddServerModal();toast('Server "'+name+'" hinzugefügt');loadServers();}
+  if(r.ok){closeAddServerModal();toast('Server "'+name+'" hinzugefügt');}
   else{err.textContent=j.detail||'Fehler beim Speichern';}
 }
 function populateServerSelect(){
@@ -2696,7 +3180,12 @@ function populateServerSelect(){
   if(!sel)return;
   const cur=sel.value;
   sel.innerHTML='<option value="">Lokal (dieser Server)</option>'+
-    _servers.map(s=>`<option value="${s.id}">${esc(s.name)} (${esc(s.host)})</option>`).join('');
+    _servers.map(s=>{
+      const isAgent=s.type==='agent';
+      const label=isAgent?`${esc(s.name)} [Agent]`:`${esc(s.name)} (${esc(s.host)})`;
+      const disabled=isAgent&&!s.url?'disabled title="Agent noch nicht verbunden"':'';
+      return `<option value="${s.id}" ${disabled}>${label}</option>`;
+    }).join('');
   if(cur)sel.value=cur;
 }
 function onServerSelectChange(){
@@ -2803,4 +3292,58 @@ function connectConsole(){
     if(_term)_term.write('\\r\\n\\x1b[31m[WebSocket-Fehler]\\x1b[0m\\r\\n');
   };
 }
+</script></body></html>"""
+
+AGENT_HTML = """<!doctype html><html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dockpilot · Agent</title><style>
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+  background:#070d1a;color:#dce8f8;display:flex;min-height:100vh;
+  align-items:center;justify-content:center}
+.wrap{width:480px;padding:1rem}
+.logo{text-align:center;font-size:1.5rem;font-weight:700;margin-bottom:.4rem}
+.logo span{color:#3b82f6}
+.badge{display:inline-flex;align-items:center;gap:.4rem;background:rgba(59,130,246,.1);
+  border:1px solid rgba(59,130,246,.25);border-radius:20px;padding:.3rem .8rem;
+  font-size:.78rem;color:#60a5fa;margin-bottom:1.5rem}
+.card{background:linear-gradient(150deg,#0e1a2e,#0c1828);border:1px solid #182a45;
+  border-radius:16px;padding:1.75rem;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.card h2{margin:0 0 .4rem;font-size:1rem;font-weight:700;color:#f0f6ff}
+.row{display:flex;justify-content:space-between;align-items:center;padding:.55rem 0;
+  border-bottom:1px solid #0e1a2e;font-size:.85rem}
+.row:last-child{border-bottom:0}
+.lbl{color:#4a6a8a}
+.val{color:#dce8f8;font-family:monospace;font-size:.82rem;word-break:break-all;text-align:right;max-width:60%}
+.val.ok{color:#4ade80}
+.val.warn{color:#fbbf24}
+</style></head>
+<body><div class="wrap" style="text-align:center">
+<div class="logo">🐳 dock<span>pilot</span></div>
+<div style="margin:.4rem 0 1.2rem">
+  <span class="badge">● Agent-Modus aktiv</span>
+</div>
+<div class="card" style="text-align:left">
+  <h2>Agent-Status</h2>
+  <div class="row"><span class="lbl">Modus</span><span class="val ok">Agent (Client)</span></div>
+  <div class="row"><span class="lbl">Hub-Verbindung</span><span class="val" id="hub-status">Prüfe…</span></div>
+  <div class="row"><span class="lbl">Hub-URL</span><span class="val" id="hub-url">–</span></div>
+  <div class="row"><span class="lbl">Agent-Name</span><span class="val" id="agent-name">–</span></div>
+  <div class="row"><span class="lbl">API-Endpunkt</span><span class="val ok">/api/*</span></div>
+</div>
+<div style="margin-top:1rem;font-size:.78rem;color:#3a5a7a">
+  Dieser Server ist als Agent eingerichtet. Das vollständige Dashboard ist auf dem Hub-Server verfügbar.
+</div>
+</div>
+<script>
+async function loadStatus(){
+  try{
+    const r=await fetch('/api/setup/mode');
+    if(!r.ok)return;
+    const j=await r.json();
+    document.getElementById('hub-url').textContent=j.hub_url||'–';
+    document.getElementById('agent-name').textContent=j.agent_name||'–';
+  }catch(e){}
+}
+loadStatus();
 </script></body></html>"""
