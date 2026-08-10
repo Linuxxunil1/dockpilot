@@ -15,14 +15,11 @@ curl -o docker-compose.yaml \
   https://raw.githubusercontent.com/Linuxxunil1/dockpilot/main/docker-compose.example.yaml
 ```
 
-**2. Pflichtfelder anpassen**
+**2. Port anpassen** *(optional)*
 
-| Variable | Was ändern |
-|---|---|
-| `DASH_PASSWORD=changeme` | Sicheres Passwort wählen |
-| `8080:8080` | Port anpassen oder eigenen Reverse Proxy vorschalten |
+Standardmäßig läuft dockpilot auf Port `8080`. In der `docker-compose.yaml` anpassen oder einen eigenen Reverse Proxy vorschalten.
 
-> `DASH_SECRET` wird beim ersten Start automatisch generiert — kein manuelles Setzen nötig.
+> Benutzername, Passwort und Secret werden beim ersten Aufruf automatisch im Setup-Wizard eingerichtet — nichts manuell setzen.
 
 **3. Starten**
 
