@@ -1,0 +1,106 @@
+<!doctype html><html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/static/logo.svg">
+<title>DockPilot · Agent</title><style>
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+  background:#0b0d17;color:#e7e9f3;display:flex;min-height:100vh;
+  align-items:center;justify-content:center}
+.wrap{width:480px;padding:1rem}
+.logo{text-align:center;font-size:1.5rem;font-weight:700;margin-bottom:.4rem}
+.logo{display:flex;align-items:center;justify-content:center}
+.badge{display:inline-flex;align-items:center;gap:.4rem;background:rgba(127,119,221,.1);
+  border:1px solid rgba(127,119,221,.25);border-radius:20px;padding:.3rem .8rem;
+  font-size:.78rem;color:#8f88e6;margin-bottom:1.5rem}
+.card{background:#141829;border:1px solid #252b45;
+  border-radius:16px;padding:1.75rem;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.card h2{margin:0 0 .4rem;font-size:1rem;font-weight:700;color:#e7e9f3}
+.row{display:flex;justify-content:space-between;align-items:center;padding:.55rem 0;
+  border-bottom:1px solid #1b2036;font-size:.85rem}
+.row:last-child{border-bottom:0}
+.lbl{color:#a5abc4}
+.val{color:#e7e9f3;font-family:monospace;font-size:.82rem;word-break:break-all;text-align:right;max-width:60%}
+.val.ok{color:#46c486}
+.val.warn{color:#fbbf24}
+</style></head>
+<body><div class="wrap" style="text-align:center">
+<div class="logo"><img src="/static/logo.svg" alt="" width="34" height="34" style="vertical-align:middle;margin-right:10px">DockPilot</div>
+<div style="margin:.4rem 0 1.2rem">
+  <span class="badge">● Agent-Modus aktiv</span>
+</div>
+<div class="card" style="text-align:left">
+  <h2>Agent-Status</h2>
+  <div class="row"><span class="lbl">Modus</span><span class="val ok">Agent (Client)</span></div>
+  <div class="row"><span class="lbl">Hub-Verbindung</span><span class="val" id="hub-status">Prüfe…</span></div>
+  <div class="row"><span class="lbl">Hub-URL</span><span class="val" id="hub-url">–</span></div>
+  <div class="row"><span class="lbl">Agent-Name</span><span class="val" id="agent-name">–</span></div>
+  <div class="row"><span class="lbl">Eigene URL</span><span class="val" id="agent-url">–</span></div>
+  <div class="row"><span class="lbl">API-Endpunkt</span><span class="val ok">/api/*</span></div>
+</div>
+<div id="hub-error" style="margin-top:.75rem;font-size:.78rem;color:#ec6b6a;display:none"></div>
+<div style="margin-top:1rem;font-size:.78rem;color:#6c7391">
+  Dieser Server ist als Agent eingerichtet. Das vollständige Dashboard ist auf dem Hub-Server verfügbar.
+</div>
+<details style="margin-top:1.25rem;text-align:left">
+  <summary style="cursor:pointer;font-size:.8rem;color:#a5abc4;user-select:none;padding:.25rem 0">⚙ Konfiguration bearbeiten</summary>
+  <div style="margin-top:.75rem;display:flex;flex-direction:column;gap:.5rem">
+    <input id="edit-hub-url" type="text" placeholder="Hub-URL (http://192.168.x.x:8880)" style="background:#1b2036;border:1px solid #252b45;color:#e7e9f3;border-radius:6px;padding:.4rem .6rem;font-size:.82rem;width:100%">
+    <input id="edit-agent-url" type="text" placeholder="Eigene URL (http://192.168.x.x:8080)" style="background:#1b2036;border:1px solid #252b45;color:#e7e9f3;border-radius:6px;padding:.4rem .6rem;font-size:.82rem;width:100%">
+    <input id="edit-token" type="text" placeholder="Agent-Token (vom Hub)" style="background:#1b2036;border:1px solid #252b45;color:#e7e9f3;border-radius:6px;padding:.4rem .6rem;font-family:monospace;font-size:.82rem;width:100%">
+    <input id="edit-name" type="text" placeholder="Agent-Name (optional)" style="background:#1b2036;border:1px solid #252b45;color:#e7e9f3;border-radius:6px;padding:.4rem .6rem;font-size:.82rem;width:100%">
+    <div style="display:flex;gap:.5rem;align-items:center;margin-top:.25rem">
+      <button onclick="saveAgentConfig()" style="background:#6e66d6;color:#fff;border:none;border-radius:7px;padding:.4rem .9rem;font-size:.8rem;cursor:pointer">Speichern & neu laden</button>
+      <span id="edit-status" style="font-size:.75rem;color:#a5abc4"></span>
+    </div>
+  </div>
+</details>
+</div>
+<script>
+async function loadStatus(){
+  try{
+    const r=await fetch('/api/setup/mode');
+    if(!r.ok)return;
+    const j=await r.json();
+    document.getElementById('hub-url').textContent=j.hub_url||'–';
+    document.getElementById('agent-name').textContent=j.agent_name||'–';
+    if(j.hub_url)document.getElementById('edit-hub-url').value=j.hub_url;
+    if(j.agent_url)document.getElementById('edit-agent-url').value=j.agent_url;
+    if(j.agent_name)document.getElementById('edit-name').value=j.agent_name;
+  }catch(e){}
+}
+async function saveAgentConfig(){
+  const hub_url=document.getElementById('edit-hub-url').value.trim();
+  const agent_url=document.getElementById('edit-agent-url').value.trim();
+  const agent_token=document.getElementById('edit-token').value.trim();
+  const agent_name=document.getElementById('edit-name').value.trim();
+  const st=document.getElementById('edit-status');
+  if(!hub_url){st.textContent='Hub-URL erforderlich';st.style.color='#ec6b6a';return;}
+  try{
+    const r=await fetch('/api/setup/mode',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({mode:'agent',hub_url,agent_url,agent_token,agent_name})});
+    if(r.ok){st.textContent='Gespeichert – lade neu…';st.style.color='#46c486';setTimeout(()=>location.reload(),1500);}
+    else{const j=await r.json().catch(()=>({}));st.textContent=j.detail||'Fehler';st.style.color='#ec6b6a';}
+  }catch(e){st.textContent='Netzwerkfehler';st.style.color='#ec6b6a';}
+}
+async function checkHubStatus(){
+  const el=document.getElementById('hub-status');
+  const errEl=document.getElementById('hub-error');
+  const urlEl=document.getElementById('agent-url');
+  try{
+    const r=await fetch('/api/agent/hub-status');
+    const j=await r.json();
+    if(urlEl)urlEl.textContent=j.agent_url||'Nicht gesetzt';
+    if(j.online){
+      el.textContent='Online';el.className='val ok';el.style.color='';
+      if(errEl)errEl.style.display='none';
+    }else{
+      el.textContent='Offline';el.className='val';el.style.color='#ec6b6a';
+      if(errEl&&j.error){errEl.textContent='Fehler: '+j.error;errEl.style.display='';}
+      if(!j.agent_url&&urlEl)urlEl.style.color='#ec6b6a';
+    }
+  }catch(e){el.textContent='Fehler';el.style.color='#ec6b6a';}
+}
+loadStatus();
+checkHubStatus();
+setInterval(checkHubStatus,30000);
+</script></body></html>

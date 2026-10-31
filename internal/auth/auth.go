@@ -1,0 +1,118 @@
+package auth
+
+import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"dockpilot/internal/config"
+	"dockpilot/internal/users"
+)
+
+// RandomToken returns a 32-byte hex random string suitable for agent tokens.
+func RandomToken() string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// MakeToken creates a signed, time-stamped session token for the given user:
+// base64url(username).timestamp.hmac
+func MakeToken(username string) string {
+	creds, _ := config.LoadCreds()
+	u := base64.RawURLEncoding.EncodeToString([]byte(username))
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+	return fmt.Sprintf("%s.%s.%s", u, ts, sign(creds.Secret, u, ts))
+}
+
+func sign(secret, u, ts string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(u + "." + ts))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// tokenUser validates a session token and returns the username it was issued for.
+func tokenUser(token string) (string, bool) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return "", false
+	}
+	u, ts, sig := parts[0], parts[1], parts[2]
+	creds, _ := config.LoadCreds()
+	if !hmac.Equal([]byte(sig), []byte(sign(creds.Secret, u, ts))) {
+		return "", false
+	}
+	t, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil || time.Now().Unix()-t >= int64(config.SessionTTL) {
+		return "", false
+	}
+	name, err := base64.RawURLEncoding.DecodeString(u)
+	if err != nil {
+		return "", false
+	}
+	return string(name), true
+}
+
+// SessionUser returns the logged-in user of the request's session cookie,
+// or nil if there is no valid session or the user no longer exists.
+func SessionUser(r *http.Request) *users.User {
+	cookie, err := r.Cookie(config.CookieName)
+	if err != nil {
+		return nil
+	}
+	name, ok := tokenUser(cookie.Value)
+	if !ok {
+		return nil
+	}
+	return users.Get(name)
+}
+
+func ValidBearer(r *http.Request) bool {
+	authHdr := r.Header.Get("Authorization")
+	if !strings.HasPrefix(authHdr, "Bearer ") {
+		return false
+	}
+	token := authHdr[7:]
+	m := config.LoadMode()
+	if m.AgentToken == "" {
+		return false
+	}
+	return hmac.Equal([]byte(token), []byte(m.AgentToken))
+}
+
+func IsAuthenticated(r *http.Request) bool {
+	return SessionUser(r) != nil || ValidBearer(r)
+}
+
+// IsCookieAuth returns true only for session-cookie auth (not bearer).
+func IsCookieAuth(r *http.Request) bool {
+	return SessionUser(r) != nil
+}
+
+func SetSessionCookie(w http.ResponseWriter, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     config.CookieName,
+		Value:    token,
+		Path:     "/",
+		MaxAge:   config.SessionTTL,
+		HttpOnly: true,
+		Secure:   config.CookieSecure,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func ClearSessionCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:   config.CookieName,
+		Value:  "",
+		Path:   "/",
+		MaxAge: -1,
+	})
+}

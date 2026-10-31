@@ -1,0 +1,33 @@
+<!doctype html><html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/static/logo.svg">
+<title>DockPilot · Login</title><style>
+*{box-sizing:border-box;user-select:none}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+  background:#0b0d17;color:#e7e9f3;display:flex;min-height:100vh;align-items:center;justify-content:center}
+.wrap{width:340px}
+.logo{text-align:center;font-size:1.5rem;font-weight:700;margin-bottom:1.75rem;letter-spacing:-.02em}
+.logo{display:flex;align-items:center;justify-content:center}
+.card{background:#141829;border:1px solid #252b45;
+  padding:2rem;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+label{display:block;font-size:.75rem;font-weight:600;
+  margin:.85rem 0 .3rem;color:#a5abc4}
+input{width:100%;padding:.65rem .9rem;border-radius:9px;border:1px solid #252b45;
+  background:#0b0d17;color:#e7e9f3;font-size:.9rem;transition:border-color .2s;user-select:text}
+input:focus{outline:none;border-color:#8f88e6;box-shadow:0 0 0 3px rgba(127,119,221,.08)}
+input:first-of-type{margin-top:0}
+button{width:100%;margin-top:1.5rem;padding:.75rem;border:0;border-radius:9px;
+  background:#6e66d6;color:#fff;font-weight:600;
+  font-size:.95rem;cursor:pointer;transition:filter .15s,transform .1s}
+button:hover{filter:brightness(1.12)}
+button:active{transform:scale(.98)}
+.err{color:#ec6b6a;font-size:.82rem;margin-top:.85rem;min-height:1.1rem;text-align:center}
+</style></head>
+<body><div class="wrap">
+<div class="logo"><img src="/static/logo.svg" alt="" width="34" height="34" style="vertical-align:middle;margin-right:10px">DockPilot</div>
+<form class="card" method="post" action="/login">
+<label>Benutzer</label><input name="username" autofocus autocomplete="username">
+<label>Passwort</label><input name="password" type="password" autocomplete="current-password">
+<button type="submit">Anmelden</button>
+<div class="err">{{ERROR}}</div>
+</form></div></body></html>

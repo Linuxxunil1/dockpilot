@@ -1,0 +1,1843 @@
+<!doctype html><html lang="de" data-theme="dark"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DockPilot</title>
+<link rel="icon" type="image/svg+xml" href="/static/logo.svg">
+<script>try{const t=localStorage.getItem('dp_theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<style>
+:root{
+  --bg:#0b0d17;--sidebar:#0f1220;--surface:#141829;--surface-2:#1b2036;--surface-3:#232944;
+  --border:#252b45;--border-strong:#363e60;
+  --text:#e7e9f3;--text-2:#a5abc4;--muted:#6c7391;
+  --accent:#8f88e6;--accent-strong:#6e66d6;--accent-bg:rgba(127,119,221,.15);--on-accent:#fff;
+  --success:#46c486;--success-bg:rgba(70,196,134,.13);
+  --warning:#e3aa45;--warning-bg:rgba(227,170,69,.13);
+  --danger:#ec6b6a;--danger-bg:rgba(236,107,106,.13);
+  --code-bg:#090b13;--shadow:0 12px 40px rgba(0,0,0,.45);
+  --radius:8px;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+  --mono:'JetBrains Mono','Fira Code',ui-monospace,'Cascadia Code',monospace;
+  --viz-1:#3987e5;--viz-2:#d95926;--viz-3:#199e70;--viz-4:#c98500;
+  color-scheme:dark;
+}
+:root[data-theme="light"]{
+  --viz-1:#2a78d6;--viz-2:#eb6834;--viz-3:#1baf7a;--viz-4:#eda100;
+  --bg:#f5f6fa;--sidebar:#ffffff;--surface:#ffffff;--surface-2:#f0f1f7;--surface-3:#e6e8f1;
+  --border:#e1e3ec;--border-strong:#c9ccda;
+  --text:#191b29;--text-2:#4a4f67;--muted:#7d839b;
+  --accent:#534ab7;--accent-strong:#453c9e;--accent-bg:#eeedfe;
+  --success:#1f8a56;--success-bg:#e3f5ec;--warning:#9a6408;--warning-bg:#fbf0dc;
+  --danger:#c23b3a;--danger-bg:#fcebeb;--code-bg:#f7f7fb;--shadow:0 12px 40px rgba(20,22,40,.12);
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font-family:var(--font);background:var(--bg);color:var(--text);font-size:14px;line-height:1.45}
+button,input,select,textarea{font:inherit;color:inherit}
+svg.i{width:16px;height:16px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+/* ── Shell ───────────────────────────────────────── */
+.app{display:flex;min-height:100vh}
+.sb{width:236px;flex-shrink:0;background:var(--sidebar);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;position:sticky;top:0;height:100vh;padding:14px 12px}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 6px 16px;font-weight:600;font-size:16px;letter-spacing:-.01em}
+.brand img{width:28px;height:28px}
+.srvsel{position:relative;margin-bottom:6px}
+.srvsel label{display:block;font-size:11px;color:var(--muted);padding:0 6px 4px}
+.srvsel select{width:100%;appearance:none;background:var(--surface-2);border:1px solid var(--border);
+  border-radius:var(--radius);padding:8px 30px 8px 10px;cursor:pointer}
+.srvsel select:hover{border-color:var(--border-strong)}
+.srvsel svg{position:absolute;right:9px;bottom:10px;pointer-events:none;color:var(--muted)}
+.nav-grp{font-size:11px;color:var(--muted);padding:16px 8px 6px}
+.nav-btn{display:flex;align-items:center;gap:10px;width:100%;padding:7px 9px;border:0;border-radius:var(--radius);
+  background:none;color:var(--text-2);cursor:pointer;text-align:left}
+.nav-btn:hover{background:var(--surface-2);color:var(--text)}
+.nav-btn.active{background:var(--accent-bg);color:var(--accent)}
+.sb-foot{margin-top:auto;border-top:1px solid var(--border);padding-top:8px;position:relative}
+.me{display:flex;align-items:center;gap:9px;padding:6px;width:100%;border:0;background:none;border-radius:var(--radius);cursor:pointer;text-align:left;color:inherit}
+.me:hover,.me[aria-expanded="true"]{background:var(--surface-2)}
+.me .chev{margin-left:auto;color:var(--muted);transform:rotate(180deg);transition:transform .15s}
+.me[aria-expanded="true"] .chev{transform:none}
+.avatar{width:30px;height:30px;border-radius:50%;background:var(--accent-bg);color:var(--accent);
+  display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px;text-transform:uppercase;flex-shrink:0}
+.me-name{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.me-role{font-size:12px;color:var(--muted)}
+.user-menu{position:absolute;left:0;right:0;bottom:calc(100% + 2px);background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);padding:5px;z-index:50}
+.user-menu[hidden]{display:none}
+.user-menu button{display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;border:0;background:none;border-radius:6px;cursor:pointer;text-align:left;color:var(--text-2)}
+.user-menu button:hover,.user-menu button:focus-visible{background:var(--surface-2);color:var(--text);outline:none}
+.user-menu button.bad{color:var(--danger)}
+.user-menu form{margin:0}
+.um-sep{height:1px;background:var(--border);margin:4px 2px}
+
+.col{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{display:flex;align-items:center;gap:12px;padding:14px 28px;border-bottom:1px solid var(--border);
+  background:var(--bg);position:sticky;top:0;z-index:20}
+.topbar h1{font-size:18px;font-weight:600;margin:0;letter-spacing:-.01em}
+.topbar #meta{color:var(--muted);font-size:13px}
+.topbar .sp{flex:1}
+#menu-btn{display:none}
+main{flex:1;padding:22px 28px;width:100%;max-width:1320px}
+footer{padding:14px 28px 18px;font-size:12px;color:var(--muted);text-align:center}
+footer span+span::before{content:"·";margin:0 8px}
+body.full-view main{max-width:none;padding:0;display:flex;flex-direction:column}
+body.full-view footer{display:none}
+.ft-update{color:var(--success);font-weight:500;cursor:help}
+body.role-user .admin-only{display:none!important}
+
+/* ── Controls ────────────────────────────────────── */
+.btn{display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:var(--radius);
+  border:1px solid var(--border-strong);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;white-space:nowrap}
+.btn:hover{background:var(--surface-2)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.primary{background:var(--accent-strong);border-color:transparent;color:var(--on-accent)}
+.btn.primary:hover{background:var(--accent)}
+.btn.danger{color:var(--danger);border-color:var(--border)}
+.btn.danger:hover{background:var(--danger-bg)}
+.btn.sm{padding:5px 10px;font-size:12px}
+.ibtn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:var(--radius);
+  border:0;background:none;color:var(--text-2);cursor:pointer}
+.ibtn:hover{background:var(--surface-3);color:var(--text)}
+.ibtn.ok:hover{color:var(--success);background:var(--success-bg)}
+.ibtn.bad:hover{color:var(--danger);background:var(--danger-bg)}
+.ibtn:disabled{opacity:.4;cursor:wait}
+input[type=text],input[type=password],input[type=number],select,textarea{
+  background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius);padding:8px 10px;width:100%}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+label.f{display:block;font-size:12px;color:var(--text-2);margin:12px 0 5px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.hint{font-size:12px;color:var(--muted)}
+.err-text{color:var(--danger);font-size:12px;min-height:16px;margin-top:8px}
+code{font-family:var(--mono);font-size:12px;background:var(--surface-2);padding:1px 5px;border-radius:4px}
+.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.search{position:relative;flex:1;min-width:180px;max-width:340px}
+.search svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted)}
+.search input{padding-left:32px}
+.chips{display:flex;gap:4px;background:var(--surface-2);padding:3px;border-radius:var(--radius)}
+.chip{border:0;background:none;color:var(--text-2);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:13px}
+.chip.on{background:var(--surface);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+.panel+.panel{margin-top:14px}
+.panel h2{font-size:15px;font-weight:600;margin:0 0 4px}
+.panel>.hint{margin:0 0 14px}
+.empty-state{color:var(--muted);padding:40px 0;text-align:center}
+
+/* ── Stats ───────────────────────────────────────── */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:20px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px 15px}
+.card .lbl{font-size:12px;color:var(--muted)}
+.card .val{font-size:22px;font-weight:600;margin:3px 0 1px;letter-spacing:-.01em}
+.card .sub{font-size:12px;color:var(--muted)}
+.cards.host{grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+.host-meta{grid-column:1/-1;display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:-4px}
+.host-meta b{color:var(--text-2);font-weight:500}
+.card.mt{display:flex;flex-direction:column}
+.mt-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.mt-val{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.mt-val .sub{white-space:nowrap}
+.chip-st{font-size:11px;font-weight:500;border-radius:20px;padding:1px 8px 1px 7px;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.chip-st::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
+.chip-st.ok{color:var(--success);background:var(--success-bg)}
+.chip-st.warn{color:var(--warning);background:var(--warning-bg)}
+.chip-st.crit{color:var(--danger);background:var(--danger-bg)}
+.meter{position:relative;height:8px;border-radius:4px;background:var(--surface-3);margin-top:auto}
+.meter>i{display:block;height:100%;border-radius:4px;background:var(--accent);transition:width .5s}
+.meter>i.warn{background:var(--warning)}.meter>i.crit{background:var(--danger)}
+.meter>b{position:absolute;top:0;bottom:0;width:2px;background:var(--surface)}
+.meter-scale{font-size:10px;color:var(--muted);margin-top:3px;position:relative;height:13px}
+.meter-scale span{position:absolute;transform:translateX(-50%)}
+.spark{position:relative;height:40px;margin-top:auto;padding-top:8px;touch-action:none;cursor:crosshair}
+.spark svg{width:100%;height:100%;display:block;overflow:visible}
+.spark .ln{fill:none;stroke:var(--accent);stroke-width:2;vector-effect:non-scaling-stroke;stroke-linejoin:round;stroke-linecap:round}
+.spark .ar{fill:var(--accent);opacity:.12}
+.spark .lim{stroke:var(--border-strong);stroke-width:1;stroke-dasharray:3 3;vector-effect:non-scaling-stroke}
+.spark.empty{cursor:default;display:flex;align-items:flex-end;font-size:11px;color:var(--muted)}
+.spark-x{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:3px}
+.spark-cross{position:absolute;top:8px;bottom:0;width:1px;background:var(--border-strong);pointer-events:none}
+.spark-dot{position:absolute;width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 2px var(--surface);transform:translate(-50%,-50%);pointer-events:none}
+.spark-tip{position:absolute;top:0;transform:translate(-50%,-100%);background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:11px;color:var(--text);white-space:nowrap;pointer-events:none;box-shadow:var(--shadow);z-index:2}
+.spark-tip span{color:var(--muted)}
+.stack{display:flex;gap:2px;height:10px;margin-top:10px;border-radius:4px;overflow:hidden;background:var(--surface-3)}
+.stack>i{display:block;height:100%;min-width:3px}
+.stack>i:first-child{border-radius:4px 0 0 4px}.stack>i:last-child{border-radius:0 4px 4px 0}
+.legend{margin-top:9px;display:grid;gap:4px;font-size:12px}
+.legend>div{display:flex;align-items:center;gap:7px;color:var(--text-2)}
+.legend .sw{width:9px;height:9px;border-radius:2px;flex-shrink:0}
+.legend .v{margin-left:auto;color:var(--muted);font-variant-numeric:tabular-nums}
+
+/* ── Container-Liste ─────────────────────────────── */
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0;background:var(--muted)}
+.dot.up{background:var(--success);box-shadow:0 0 0 3px var(--success-bg)}
+.dot.partial{background:var(--warning);box-shadow:0 0 0 3px var(--warning-bg)}
+.dot.down{background:var(--muted)}
+#container-grid{display:flex;flex-direction:column;gap:12px}
+.group-section{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.group-section.stack-dragging{opacity:.4}
+.group-section.stack-drag-over{border-color:var(--accent)}
+.group-hdr{display:flex;align-items:center;gap:9px;padding:9px 14px;background:var(--surface-2);cursor:pointer;user-select:none;font-weight:500}
+.group-hdr .chev{color:var(--muted);transition:transform .15s}
+.group-section.collapsed .chev{transform:rotate(-90deg)}
+.group-section.collapsed .ccard-grid{display:none}
+.group-hdr .cnt{margin-left:auto;font-size:12px;color:var(--muted);font-weight:400}
+.ccard{display:grid;grid-template-columns:10px minmax(0,2.2fr) minmax(0,1.1fr) 120px 120px 132px;gap:14px;align-items:center;
+  padding:9px 14px;border-top:1px solid var(--border);cursor:grab}
+.ccard:hover{background:var(--surface-2)}
+.ccard.dragging{opacity:.35}
+.ccard.drag-over{box-shadow:inset 0 2px 0 var(--accent)}
+.c-name{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.c-img{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono)}
+.c-status{font-size:12px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.c-status.off{color:var(--muted)}
+.c-stat{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text-2)}
+.c-stat .l{color:var(--muted);width:28px}
+.c-stat .b{flex:1;height:4px;border-radius:2px;background:var(--surface-3);overflow:hidden}
+.c-stat .b i{display:block;height:100%;background:var(--accent)}
+.c-stat .v{width:32px;text-align:right}
+.c-acts{display:flex;justify-content:flex-end;gap:2px}
+.spin{animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.loadbar{position:fixed;top:0;left:0;right:0;height:3px;z-index:1000;overflow:hidden;pointer-events:none;
+  background:var(--accent-bg);opacity:0;transition:opacity .2s}
+.loadbar.on{opacity:1}
+.loadbar::before{content:'';position:absolute;top:0;bottom:0;left:-40%;width:40%;background:var(--accent);animation:lb 1.1s ease-in-out infinite}
+@keyframes lb{to{left:100%}}
+@media (prefers-reduced-motion:reduce){.loadbar::before{animation:none;left:0;width:100%;opacity:.6}}
+
+/* ── Stacks ──────────────────────────────────────── */
+.scard-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-bottom:16px}
+.scard{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 15px;cursor:pointer;display:flex;flex-direction:column;gap:8px}
+.scard:hover{border-color:var(--border-strong)}
+.scard.active{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.scard-name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scard-meta{font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:7px}
+.scard-acts{display:flex;gap:2px;margin:0 -6px -6px}
+.scard-new{border-style:dashed;align-items:center;justify-content:center;flex-direction:row;color:var(--muted);min-height:96px}
+.scard-new:hover{color:var(--text)}
+.stack-editor-panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px}
+.stack-toolbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.stack-toolbar strong{flex:1;font-size:15px;font-weight:600;min-width:120px}
+textarea.editor{height:52vh;font-family:var(--mono);font-size:13px;line-height:1.65;background:var(--code-bg);resize:vertical;padding:12px 14px}
+.output-box{margin-top:10px;background:var(--code-bg);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;
+  font-family:var(--mono);font-size:12px;color:var(--text-2);white-space:pre-wrap;max-height:240px;overflow-y:auto}
+
+/* ── Images ──────────────────────────────────────── */
+.img-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+.icard{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px 15px;display:flex;flex-direction:column;gap:4px}
+.icard-tags{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.icard-tag-none{color:var(--muted);font-style:italic}
+.icard-id{color:var(--muted);font-size:12px;font-family:var(--mono)}
+.icard-meta{display:flex;justify-content:space-between;font-size:12px;color:var(--text-2)}
+.icard-footer{display:flex;align-items:center;justify-content:space-between;margin-top:6px}
+.badge{font-size:11px;border-radius:5px;padding:2px 8px;font-weight:500}
+.badge.ok{background:var(--success-bg);color:var(--success)}
+.badge.mute{background:var(--surface-2);color:var(--muted)}
+.badge.acc{background:var(--accent-bg);color:var(--accent)}
+
+/* ── Server ──────────────────────────────────────── */
+.srv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.srvcard{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:15px;display:flex;flex-direction:column;gap:6px}
+.srvcard-top{display:flex;align-items:center;gap:8px}
+.srvcard-name{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.srvcard-host{font-size:12px;color:var(--muted);font-family:var(--mono)}
+.srvcard-status{font-size:12px;border-radius:20px;padding:2px 9px;width:fit-content}
+.srvcard-status.online{background:var(--success-bg);color:var(--success)}
+.srvcard-status.offline{background:var(--danger-bg);color:var(--danger)}
+.srvcard-status.checking{background:var(--warning-bg);color:var(--warning)}
+.srvcard-actions{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+
+/* ── Listen (Benutzer, Registries) ───────────────── */
+.list-row{display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px;flex-wrap:wrap}
+.list-row .grow{flex:1;min-width:8rem;overflow:hidden;text-overflow:ellipsis}
+.list-row select{width:auto;padding:5px 8px;font-size:13px}
+.form-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.form-row input{flex:1;min-width:150px;width:auto}
+.form-row select{width:auto}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px}
+.kv:last-of-type{border-bottom:0}
+.kv span:first-child{color:var(--text-2)}
+.kv span:last-child{text-align:right;word-break:break-all}
+.sec-title{font-size:13px;font-weight:600;color:var(--text-2);margin:0 0 10px;text-transform:uppercase;letter-spacing:.05em}
+* + .sec-title{margin-top:28px}
+.tile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:14px;align-items:stretch}
+.tile-form textarea{font-family:var(--mono);font-size:11.5px;min-height:74px;resize:vertical}
+.tile-form details summary{cursor:pointer;font-size:12px;color:var(--text-2)}
+.tile-form details[open] summary{margin-bottom:8px}
+.tile-form details>div{display:flex;flex-direction:column;gap:8px}
+.file-btn{position:relative;overflow:hidden}
+.file-btn input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.fetch-box{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);padding:9px 11px;font-size:12px;display:flex;flex-direction:column;gap:3px}
+.fetch-box .fp{font-family:var(--mono);font-size:10.5px;color:var(--text-2);word-break:break-all}
+.tile-grid .panel+.panel{margin-top:0}
+.panel.tile{display:flex;flex-direction:column;padding:0;overflow:hidden}
+.tile-head{display:flex;align-items:flex-start;gap:12px;padding:16px 18px 12px}
+.tile-ico{width:34px;height:34px;border-radius:9px;background:var(--accent-bg);color:var(--accent);display:grid;place-items:center;flex-shrink:0}
+.tile-ico svg.i{width:18px;height:18px}
+.tile-head h2{display:flex;align-items:center;gap:8px}
+.tile-head .hint{margin:3px 0 0}
+.tile-list{padding:0 18px 14px;display:flex;flex-direction:column;gap:6px;flex:1}
+.entry{display:flex;align-items:center;gap:10px;padding:9px 10px 9px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-2)}
+.entry .grow{flex:1;min-width:0}
+.entry .nm{font-family:var(--mono);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.entry .ds{font-size:11.5px;color:var(--muted);margin-top:1px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.tile-empty{border:1px dashed var(--border-strong);border-radius:var(--radius);padding:14px;text-align:center;font-size:12px;color:var(--muted)}
+.tile-form{border-top:1px solid var(--border);background:var(--surface-2);padding:12px 18px 14px;display:flex;flex-direction:column;gap:8px}
+.tile-form .ttl{font-size:12px;font-weight:600;color:var(--text-2)}
+.tile-form .row>input{flex:1;min-width:0;width:auto}
+.tile-form .err-text{margin-top:0;min-height:0}
+.tile-form .err-text:empty{display:none}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;align-items:start}
+.grid2 .panel+.panel{margin-top:0}
+details summary{cursor:pointer;color:var(--text-2);font-size:13px;margin-top:14px}
+
+/* ── SSH-Zugriff ─────────────────────────────────── */
+body.full-view #view-ssh{flex:1;display:flex;flex-direction:column;min-height:0}
+#ssh-console{flex:1;display:flex;flex-direction:column;min-height:0;height:calc(100vh - 57px)}
+.konsole-bar{display:flex;align-items:center;gap:10px;padding:9px 20px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+#konsole-name{font-family:var(--mono);font-size:12px;color:var(--text-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#konsole-status{font-size:12px}
+#console-term{flex:1;min-height:0;background:#0b0d17;padding:6px 0 0 8px}
+.chk{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2);margin-top:8px}
+.chk input{width:auto}
+.cterm-modal{width:min(1100px,96vw);height:min(720px,88vh);max-height:none;padding:0;display:flex;flex-direction:column;overflow:hidden}
+.cterm-modal .konsole-bar strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#cterm{flex:1;min-height:0;background:#0b0d17;padding:6px 0 0 8px}
+.chk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:0 14px}
+.chk-grid .chk{margin-top:6px}
+.perm-area{font-size:11px;color:var(--muted);margin:14px 0 0;text-transform:uppercase;letter-spacing:.04em}
+.tags{display:flex;gap:4px;flex-wrap:wrap}
+
+/* ── Modals & Toast ──────────────────────────────── */
+.modal-backdrop{position:fixed;inset:0;background:rgba(5,6,12,.55);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;width:440px;max-width:100%;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow)}
+.modal h3{margin:0 0 6px;font-size:16px;font-weight:600}
+.modal-actions{display:flex;gap:8px;margin-top:18px;justify-content:flex-end}
+.token-box{background:var(--code-bg);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;font-family:var(--mono);font-size:12px;color:var(--accent);word-break:break-all;user-select:all}
+#toast{position:fixed;bottom:20px;right:20px;background:var(--surface);border:1px solid var(--border-strong);padding:10px 16px;border-radius:10px;
+  opacity:0;transition:opacity .2s;pointer-events:none;box-shadow:var(--shadow);z-index:300;max-width:calc(100vw - 40px)}
+#toast.show{opacity:1}
+#toast.err{border-color:var(--danger);color:var(--danger)}
+
+/* ── Mobil ───────────────────────────────────────── */
+.scrim{display:none}
+@media (max-width:1100px){
+  .ccard{grid-template-columns:10px minmax(0,2fr) 110px 110px 132px}
+  .c-status{display:none}
+}
+@media (max-width:820px){
+  .sb{position:fixed;left:0;top:0;z-index:60;transform:translateX(-100%);transition:transform .2s;box-shadow:var(--shadow)}
+  body.nav-open .sb{transform:none}
+  body.nav-open .scrim{display:block;position:fixed;inset:0;background:rgba(5,6,12,.5);z-index:50}
+  #menu-btn{display:inline-flex}
+  .topbar{padding:12px 16px}
+  main{padding:16px}
+  .ccard{grid-template-columns:10px minmax(0,1fr) auto;gap:10px}
+  .c-stat{display:none}
+}
+</style></head><body>
+<div id="loadbar" class="loadbar" role="progressbar" aria-label="Daten werden geladen" aria-hidden="true"></div>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></symbol>
+<symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 12.5l9 5 9-5M3 16.5l9 5 9-5"/></symbol>
+<symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17l5-5 4 4 2.5-2.5L20 18"/></symbol>
+<symbol id="i-server" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="6.5" rx="1.5"/><rect x="3.5" y="13.5" width="17" height="6.5" rx="1.5"/><path d="M7.5 7.25h.01M7.5 16.75h.01"/></symbol>
+<symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 4.8a3.2 3.2 0 0 1 0 6.4M18 14.3c2 .8 3 2.9 3 5.7"/></symbol>
+<symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l8.5-8.5M16 7l3 3"/></symbol>
+<symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.3-4.3"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></symbol>
+<symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/></symbol>
+<symbol id="i-restart" viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4v4.5H15"/></symbol>
+<symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/></symbol>
+<symbol id="i-logs" viewBox="0 0 24 24"><path d="M5 6.5h14M5 12h14M5 17.5h9"/></symbol>
+<symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M10 11v6M14 11v6M6.5 7l1 13h9l1-13M9.5 7V4h5v3"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-logout" viewBox="0 0 24 24"><path d="M15 4h3.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H15M10 8l-4 4 4 4M6 12h10"/></symbol>
+<symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></symbol>
+<symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></symbol>
+<symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6.5h16M4 12h16M4 17.5h16"/></symbol>
+<symbol id="i-chev" viewBox="0 0 24 24"><path d="M6.5 9.5l5.5 5.5 5.5-5.5"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></symbol>
+<symbol id="i-save" viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5z"/><path d="M8.5 4v4.5h6V4M8.5 20v-6h7v6"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></symbol>
+<symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3.5v4M15 3.5v4M7 7.5h10v3.5a5 5 0 0 1-10 0zM12 16v4.5"/></symbol>
+<symbol id="i-cert" viewBox="0 0 24 24"><path d="M12 3.5l7 2.5v5.5c0 4.3-3 7.6-7 9-4-1.4-7-4.7-7-9V6z"/><path d="M9 12l2.2 2.2L15.5 10"/></symbol>
+<symbol id="i-term" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M8 10l3 2.5L8 15M13 15h3.5"/></symbol>
+<symbol id="i-edit" viewBox="0 0 24 24"><path d="M4.5 19.5l1-4.5L15.5 5a2.1 2.1 0 0 1 3 3l-10 10z"/><path d="M13.5 7l3 3"/></symbol>
+</defs></svg>
+
+<div class="app">
+<aside class="sb" id="sb">
+  <div class="brand"><img src="/static/logo.svg" alt="">DockPilot</div>
+  <div class="srvsel">
+    <label for="header-server-sel">Server</label>
+    <select id="header-server-sel" onchange="trackLoading([switchServer(this.value)])"><option value="">Lokal</option></select>
+    <svg class="i"><use href="#i-chev"/></svg>
+  </div>
+  <nav>
+    <div class="nav-grp">Übersicht</div>
+    <button class="nav-btn" data-view="containers" onclick="switchTab('containers')"><svg class="i"><use href="#i-box"/></svg>Container</button>
+    <button class="nav-btn" data-view="stacks" onclick="switchTab('stacks')"><svg class="i"><use href="#i-layers"/></svg>Stacks</button>
+    <div class="nav-grp">System</div>
+      <button class="nav-btn" data-view="images" onclick="switchTab('images')"><svg class="i"><use href="#i-image"/></svg>Images</button>
+      <div class="nav-grp">Verwaltung</div>
+      <button class="nav-btn" data-view="server" onclick="switchTab('server')"><svg class="i"><use href="#i-server"/></svg>Server &amp; Agents</button>
+      <button class="nav-btn" data-view="ssh" onclick="switchTab('ssh')"><svg class="i"><use href="#i-term"/></svg>SSH-Zugriff</button>
+      <button class="nav-btn" data-view="users" onclick="switchTab('users')"><svg class="i"><use href="#i-users"/></svg>Benutzer</button>
+      <button class="nav-btn" data-view="settings" onclick="switchTab('settings')"><svg class="i"><use href="#i-sliders"/></svg>Einstellungen</button>
+  </nav>
+  <div class="sb-foot">
+    <div class="user-menu" id="user-menu" role="menu" aria-label="Benutzermenü" hidden>
+      <button role="menuitem" onclick="closeUserMenu();openPwModal()"><svg class="i"><use href="#i-lock"/></svg>Passwort ändern</button>
+      <button role="menuitem" onclick="toggleTheme()"><svg class="i" id="theme-ico"><use href="#i-sun"/></svg><span id="theme-label">Heller Modus</span></button>
+      <div class="um-sep" role="separator"></div>
+      <form method="post" action="/logout"><button role="menuitem" type="submit" class="bad"><svg class="i"><use href="#i-logout"/></svg>Abmelden</button></form>
+    </div>
+    <button class="me" id="me-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="user-menu" onclick="toggleUserMenu()">
+      <div class="avatar" id="me-avatar">?</div><div style="min-width:0"><div class="me-name" id="me-name">…</div><div class="me-role" id="me-role"></div></div>
+      <svg class="i chev"><use href="#i-chev"/></svg>
+    </button>
+  </div>
+</aside>
+<div class="scrim" onclick="document.body.classList.remove('nav-open')"></div>
+
+<div class="col">
+<header class="topbar">
+  <button class="ibtn" id="menu-btn" onclick="document.body.classList.toggle('nav-open')" aria-label="Menü"><svg class="i"><use href="#i-menu"/></svg></button>
+  <h1 id="page-title">Container</h1>
+  <span id="meta"></span>
+  <span class="sp"></span>
+</header>
+<main>
+
+<!-- ── Container ─────────────────────────────────── -->
+<div id="view-containers">
+  <section class="cards host" id="host" aria-label="Auslastung des Servers"></section>
+  <div class="toolbar">
+    <div class="search"><svg class="i"><use href="#i-search"/></svg><input type="text" id="c-search" placeholder="Container suchen…" oninput="cSearch=this.value.trim().toLowerCase();render(last)"></div>
+    <div class="chips" id="c-chips">
+      <button class="chip on" data-f="all" onclick="setFilter('all')">Alle</button>
+      <button class="chip" data-f="run" onclick="setFilter('run')">Laufend</button>
+      <button class="chip" data-f="stop" onclick="setFilter('stop')">Gestoppt</button>
+    </div>
+  </div>
+  <div id="container-grid"><div class="empty-state">lädt…</div></div>
+</div>
+
+<!-- ── Stacks ────────────────────────────────────── -->
+<div id="view-stacks" style="display:none">
+  <div class="toolbar need-stacks-edit">
+    <button class="btn primary" onclick="newStack()"><svg class="i"><use href="#i-plus"/></svg>Neuer Stack</button>
+    <button class="btn" onclick="openImportDialog()"><svg class="i"><use href="#i-download"/></svg>Importieren</button>
+    <button class="btn admin-only" onclick="switchTab('registries')"><svg class="i"><use href="#i-key"/></svg>Registries &amp; Tokens</button>
+  </div>
+  <div id="scard-grid" class="scard-grid"><div class="empty-state">lädt…</div></div>
+  <div class="stack-editor-panel" id="stack-editor" style="display:none">
+    <div class="stack-toolbar">
+      <strong id="editor-title"></strong>
+      <button class="btn sm need-stacks-control" onclick="stackAction('up')"><svg class="i"><use href="#i-play"/></svg>Deploy</button>
+      <button class="btn sm need-stacks-control" onclick="stackAction('down')"><svg class="i"><use href="#i-stop"/></svg>Down</button>
+      <button class="btn sm need-stacks-edit" onclick="stackAction('pull')"><svg class="i"><use href="#i-download"/></svg>Pull</button>
+      <button class="btn sm" onclick="stackAction('logs')"><svg class="i"><use href="#i-logs"/></svg>Logs</button>
+      <button class="btn sm primary need-stacks-edit" onclick="saveStack()"><svg class="i"><use href="#i-save"/></svg>Speichern</button>
+      <button class="btn sm danger need-stacks-edit" onclick="deleteStack()"><svg class="i"><use href="#i-trash"/></svg>Löschen</button>
+      <button class="ibtn" onclick="closeEditor()" aria-label="Schließen"><svg class="i"><use href="#i-x"/></svg></button>
+    </div>
+    <textarea class="editor" id="compose-editor" spellcheck="false"></textarea>
+    <div class="output-box" id="stack-output" style="display:none"></div>
+  </div>
+</div>
+
+<!-- ── Images ────────────────────────────────────── -->
+<div id="view-images" style="display:none">
+  <div class="toolbar">
+    <button class="btn danger" onclick="pruneImages()"><svg class="i"><use href="#i-trash"/></svg>Ungenutzte aufräumen</button>
+    <span id="img-meta" class="hint"></span>
+  </div>
+  <div id="img-grid" class="img-grid"><div class="empty-state">lädt…</div></div>
+</div>
+
+<!-- ── Server & Agents ───────────────────────────── -->
+<div id="view-server" style="display:none">
+  <div class="toolbar">
+    <button class="btn primary" onclick="openAddServerModal()"><svg class="i"><use href="#i-plug"/></svg>Agent einladen</button>
+  </div>
+  <div id="srv-grid" class="srv-grid"><div class="empty-state">lädt…</div></div>
+</div>
+
+<!-- ── SSH-Zugriff ───────────────────────────────── -->
+<div id="view-ssh" style="display:none">
+  <div id="ssh-list-pane">
+    <div class="toolbar admin-only">
+      <button class="btn primary" onclick="openSshModal()"><svg class="i"><use href="#i-plus"/></svg>SSH-Server hinzufügen</button>
+    </div>
+    <div id="ssh-grid" class="srv-grid"><div class="empty-state">lädt…</div></div>
+  </div>
+  <div id="ssh-console" style="display:none">
+    <div class="konsole-bar">
+      <button class="btn sm" onclick="closeConsole()"><svg class="i"><use href="#i-x"/></svg>Schließen</button>
+      <span id="konsole-name"></span>
+      <span id="konsole-status">● Nicht verbunden</span>
+      <button class="btn sm" id="konsole-reconnect" style="display:none" onclick="connectConsole()"><svg class="i"><use href="#i-restart"/></svg>Neu verbinden</button>
+    </div>
+    <div id="console-term"></div>
+  </div>
+</div>
+
+<!-- ── Benutzer ──────────────────────────────────── -->
+<div id="view-users" style="display:none">
+  <div class="panel" style="max-width:760px">
+    <h2>Benutzer</h2>
+    <p class="hint"><b>Admin</b>: voller Zugriff auf alles. <b>Benutzer</b>: bekommen die Rechte und Server aller ihrer Gruppen.</p>
+    <div id="usr-list"><div class="empty-state">lädt…</div></div>
+    <div class="form-row">
+      <input id="usr-new-name" type="text" placeholder="Benutzername" autocomplete="off">
+      <input id="usr-new-pass" type="password" placeholder="Passwort (min. 8 Zeichen)" autocomplete="new-password">
+      <select id="usr-new-role" onchange="$('usr-new-group').style.display=this.value==='admin'?'none':''"><option value="user">Benutzer</option><option value="admin">Admin</option></select>
+      <select id="usr-new-group" aria-label="Gruppe"></select>
+      <button class="btn primary" onclick="createUser()"><svg class="i"><use href="#i-plus"/></svg>Anlegen</button>
+    </div>
+    <div class="err-text" id="usr-err"></div>
+  </div>
+  <div class="panel" style="max-width:760px">
+    <h2>Gruppen &amp; Berechtigungen</h2>
+    <p class="hint">Eine Gruppe legt fest, welche Funktionen ihre Mitglieder nutzen dürfen und auf welchen Servern.</p>
+    <div id="grp-list"><div class="empty-state">lädt…</div></div>
+    <div class="form-row"><button class="btn primary" onclick="openGroupModal()"><svg class="i"><use href="#i-plus"/></svg>Neue Gruppe</button></div>
+  </div>
+</div>
+
+<!-- ── Registries ────────────────────────────────── -->
+<!-- ── Einstellungen ─────────────────────────────── -->
+<div id="view-settings" style="display:none">
+  <h2 class="sec-title">System</h2>
+  <div class="grid2">
+    <div class="panel">
+      <h2>Betriebsmodus</h2>
+      <p class="hint">Aktuell: <span id="cfg-cur-mode"></span></p>
+      <select id="cfg-mode" onchange="onCfgModeChange()">
+        <option value="standalone">Standalone</option><option value="hub">Hub</option><option value="agent">Agent</option>
+      </select>
+      <div id="cfg-agent-fields" style="display:none;flex-direction:column;gap:8px;margin-top:8px">
+        <input id="cfg-hub-url" type="text" placeholder="Hub-URL (https://dockpilot.example.com)">
+        <input id="cfg-agent-token" type="text" placeholder="Agent-Token (vom Hub)" style="font-family:var(--mono)">
+        <input id="cfg-agent-name" type="text" placeholder="Agent-Name (optional, Standard: Hostname)">
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn primary" onclick="saveMode()">Speichern und neu laden</button>
+        <span id="cfg-mode-status" class="hint"></span>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Updates</h2>
+      <p class="hint">DockPilot prüft stündlich, ob in der Registry des eigenen Images eine neuere Version liegt.</p>
+      <div class="kv"><span>Installiert</span><span id="rel-cur">–</span></div>
+      <div class="kv"><span>Neueste in der Registry</span><span id="rel-latest">–</span></div>
+      <div class="kv"><span>Image</span><span id="rel-image" style="font-family:var(--mono);font-size:12px">–</span></div>
+      <div class="kv"><span>Letzte Prüfung</span><span id="rel-checked">–</span></div>
+      <div class="kv"><span>Status</span><span id="rel-status">–</span></div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="rel-check-btn" onclick="checkRelease()"><svg class="i"><use href="#i-restart"/></svg>Jetzt prüfen</button>
+      </div>
+      <p class="hint" id="rel-howto" style="display:none;margin:10px 0 0">Aktualisieren auf dem Server mit <code>docker compose pull &amp;&amp; docker compose up -d</code>.</p>
+    </div>
+  </div>
+  <h2 class="sec-title" id="sec-registries">Registries &amp; Tokens</h2>
+  <div class="tile-grid">
+    <div class="panel tile">
+      <div class="tile-head">
+        <span class="tile-ico"><svg class="i"><use href="#i-key"/></svg></span>
+        <div><h2>Registry-Logins <span class="badge mute" id="reg-count">0</span></h2>
+          <p class="hint">Zugangsdaten für private Registries – für Pull, Image-Update und die Update-Prüfung.</p></div>
+      </div>
+      <div class="tile-list" id="registry-list"></div>
+      <div class="tile-form">
+        <span class="ttl">Login hinzufügen</span>
+        <input type="text" id="reg-url" placeholder="Registry, z. B. registry.example.com" aria-label="Registry">
+        <div class="row"><input type="text" id="reg-user" placeholder="Benutzername" aria-label="Benutzername" autocomplete="off"><input type="password" id="reg-pass" placeholder="Passwort / Token" aria-label="Passwort oder Token" autocomplete="new-password"></div>
+        <div class="err-text" id="reg-err"></div>
+        <div><button class="btn primary sm" onclick="saveRegistry()"><svg class="i"><use href="#i-plus"/></svg>Speichern</button></div>
+      </div>
+    </div>
+    <div class="panel tile">
+      <div class="tile-head">
+        <span class="tile-ico"><svg class="i"><use href="#i-lock"/></svg></span>
+        <div><h2>HTTP-Registries <span class="badge mute" id="ins-count">0</span></h2>
+          <p class="hint">Ohne TLS oder mit selbst signiertem Zertifikat. Wird in <code>/etc/docker/daemon.json</code> eingetragen, danach lädt der Docker-Daemon neu.</p></div>
+      </div>
+      <div class="tile-list" id="insecure-list"></div>
+      <div class="tile-form">
+        <span class="ttl">Registry hinzufügen</span>
+        <div class="row"><input type="text" id="ins-registry" placeholder="registry.example.com:5000" aria-label="Registry-Adresse"><button class="btn sm" onclick="saveInsecure()"><svg class="i"><use href="#i-plus"/></svg>Hinzufügen</button></div>
+        <div class="err-text" id="ins-err"></div>
+      </div>
+    </div>
+    <div class="panel tile">
+      <div class="tile-head">
+        <span class="tile-ico"><svg class="i"><use href="#i-download"/></svg></span>
+        <div><h2>Import-Tokens <span class="badge mute" id="tok-count">0</span></h2>
+          <p class="hint">Bearer-Tokens, um Compose-Dateien aus privaten Repositories zu importieren.</p></div>
+      </div>
+      <div class="tile-list" id="token-list"></div>
+      <div class="tile-form">
+        <span class="ttl">Token hinzufügen</span>
+        <div class="row"><input type="text" id="tok-name" placeholder="Name, z. B. github" aria-label="Token-Name" autocomplete="off"><input type="password" id="tok-value" placeholder="Token" aria-label="Token" autocomplete="new-password"></div>
+        <div class="err-text" id="tok-err"></div>
+        <div><button class="btn primary sm" onclick="saveToken()"><svg class="i"><use href="#i-plus"/></svg>Speichern</button></div>
+      </div>
+    </div>
+    <div class="panel tile">
+      <div class="tile-head">
+        <span class="tile-ico"><svg class="i"><use href="#i-cert"/></svg></span>
+        <div><h2>Zertifikate <span class="badge mute" id="cert-count">0</span></h2>
+          <p class="hint">Eigene CA (z. B. selbst signiert) und optional Client-Zertifikat je Registry. Abgelegt in <code id="cert-dir">/etc/docker/certs.d</code>, Docker nutzt sie ohne Neustart. Wird an Agents übertragen.</p></div>
+      </div>
+      <div class="tile-list" id="cert-list"></div>
+      <div class="tile-form">
+        <span class="ttl">Zertifikat hinzufügen</span>
+        <div class="row"><input type="text" id="cert-reg" placeholder="registry.example.com oder host:5000" aria-label="Registry"><button class="btn sm" id="cert-fetch-btn" onclick="fetchCert()"><svg class="i"><use href="#i-download"/></svg>Vom Server abrufen</button></div>
+        <div id="cert-fetched"></div>
+        <textarea id="cert-ca" spellcheck="false" placeholder="-----BEGIN CERTIFICATE----- (CA-Zertifikat)" aria-label="CA-Zertifikat"></textarea>
+        <details>
+          <summary>Client-Zertifikat für mTLS (optional)</summary>
+          <div>
+            <textarea id="cert-cc" spellcheck="false" placeholder="-----BEGIN CERTIFICATE----- (client.cert)" aria-label="Client-Zertifikat"></textarea>
+            <textarea id="cert-ck" spellcheck="false" placeholder="-----BEGIN PRIVATE KEY----- (client.key)" aria-label="Privater Schlüssel"></textarea>
+          </div>
+        </details>
+        <div class="err-text" id="cert-err"></div>
+        <div class="row">
+          <button class="btn primary sm" onclick="saveCert()"><svg class="i"><use href="#i-plus"/></svg>Speichern</button>
+          <span class="btn sm file-btn"><svg class="i"><use href="#i-download"/></svg>Datei laden …<input type="file" accept=".crt,.pem,.cer,.cert,.key" multiple onchange="loadCertFiles(this)" aria-label="Zertifikatsdateien laden"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</main>
+<footer><span id="ft-version">DockPilot</span><span id="ft-update" class="ft-update" style="display:none"></span><span id="ft-agent" style="display:none"></span></footer>
+</div>
+</div>
+
+<!-- ── Modals ────────────────────────────────────── -->
+<div id="import-modal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeImportDialog()">
+  <div class="modal">
+    <h3>Stack importieren</h3>
+    <label class="f">URL zur docker-compose.yaml</label><input type="text" id="imp-url" placeholder="https://…/docker-compose.yaml">
+    <label class="f">Stack-Name</label><input type="text" id="imp-name" placeholder="mein-stack">
+    <label class="f">Token (optional)</label><select id="imp-token"><option value="">Kein Token</option></select>
+    <div class="err-text" id="imp-err"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeImportDialog()">Abbrechen</button>
+      <button class="btn primary" id="imp-btn" onclick="doImport()">Importieren</button>
+    </div>
+  </div>
+</div>
+
+<div id="cterm-modal" class="modal-backdrop" style="display:none">
+  <div class="modal cterm-modal" role="dialog" aria-label="Container-Konsole">
+    <div class="konsole-bar">
+      <svg class="i"><use href="#i-term"/></svg><strong id="cterm-name"></strong>
+      <span id="cterm-status" style="font-size:12px"></span>
+      <span style="flex:1"></span>
+      <button class="btn sm" id="cterm-reconnect" style="display:none" onclick="connectContainerConsole()"><svg class="i"><use href="#i-restart"/></svg>Neu verbinden</button>
+      <button class="ibtn" onclick="closeContainerConsole()" aria-label="Konsole schließen"><svg class="i"><use href="#i-x"/></svg></button>
+    </div>
+    <div id="cterm"></div>
+  </div>
+</div>
+
+<div id="grp-modal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeGroupModal()">
+  <div class="modal" style="width:620px">
+    <h3 id="grp-modal-title">Neue Gruppe</h3>
+    <label class="f" for="grp-name">Name</label><input id="grp-name" type="text" placeholder="z. B. Entwickler" maxlength="64">
+    <div id="grp-perms"></div>
+    <div class="perm-area">Server</div>
+    <label class="chk"><input type="checkbox" id="grp-all-servers" onchange="onGrpAllServers()"><b>Alle Server</b>&nbsp;<span class="hint">auch später hinzugefügte</span></label>
+    <div id="grp-servers" class="chk-grid"></div>
+    <div class="err-text" id="grp-err"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeGroupModal()">Abbrechen</button>
+      <button class="btn primary" onclick="saveGroup()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<div id="ug-modal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeUserGroups()">
+  <div class="modal" style="width:420px">
+    <h3>Gruppen von <span id="ug-name"></span></h3>
+    <div id="ug-list"></div>
+    <div class="err-text" id="ug-err"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeUserGroups()">Abbrechen</button>
+      <button class="btn primary" onclick="saveUserGroups()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<div id="ssh-modal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeSshModal()">
+  <div class="modal" style="width:520px">
+    <h3 id="ssh-modal-title">SSH-Server hinzufügen</h3>
+    <label class="f" for="ssh-name">Name</label><input id="ssh-name" type="text" placeholder="Mein Server">
+    <label class="f" for="ssh-host">Host / IP</label><input id="ssh-host" type="text" placeholder="192.168.1.100">
+    <div class="row" style="align-items:flex-start">
+      <div style="flex:1"><label class="f" for="ssh-port">Port</label><input id="ssh-port" type="number" min="1" max="65535" value="22"></div>
+      <div style="flex:2"><label class="f" for="ssh-user">Benutzer</label><input id="ssh-user" type="text" placeholder="root" autocomplete="off"></div>
+    </div>
+    <label class="f" for="ssh-auth">Authentifizierung</label>
+    <select id="ssh-auth" onchange="onSshAuthChange()"><option value="key">Schlüssel / Zertifikat</option><option value="password">Passwort</option></select>
+    <div id="ssh-key-fields">
+      <label class="f" for="ssh-key">Privater Schlüssel</label>
+      <textarea id="ssh-key" rows="5" spellcheck="false" style="font-family:var(--mono);font-size:12px" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea>
+      <label class="f" for="ssh-pass">Passphrase des Schlüssels (optional)</label><input id="ssh-pass" type="password" autocomplete="new-password">
+      <label class="f" for="ssh-cert">OpenSSH-Zertifikat (optional, Inhalt der <code>*-cert.pub</code>)</label>
+      <textarea id="ssh-cert" rows="3" spellcheck="false" style="font-family:var(--mono);font-size:12px" placeholder="ssh-ed25519-cert-v01@openssh.com AAAA…"></textarea>
+      <label class="chk" id="ssh-cert-del-row" style="display:none"><input type="checkbox" id="ssh-cert-del">Hinterlegtes Zertifikat entfernen</label>
+    </div>
+    <div id="ssh-pw-fields" style="display:none">
+      <label class="f" for="ssh-password">Passwort</label><input id="ssh-password" type="password" autocomplete="new-password">
+    </div>
+    <p class="hint" id="ssh-edit-hint" style="display:none;margin:10px 0 0">Leere Felder für Schlüssel, Passphrase und Passwort bleiben unverändert.</p>
+    <div class="err-text" id="ssh-err"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeSshModal()">Abbrechen</button>
+      <button class="btn primary" onclick="saveSsh()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<div id="add-server-modal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeAddServerModal()">
+  <div class="modal" style="width:480px">
+    <h3>Agent einladen</h3>
+    <div id="srv-agent-fields">
+      <label class="f">Agent-Name</label><input id="srv-agent-name" type="text" placeholder="mein-server-02">
+      <div id="srv-agent-token-box" style="display:none">
+        <label class="f">Einladungs-Token</label>
+        <div class="token-box" id="srv-agent-token-val"></div>
+        <p class="hint" style="margin:8px 0 0">Diesen Token beim Setup des Agent-Servers eingeben (Agent-Modus → Hub-Verbindung).</p>
+      </div>
+      <div id="srv-agent-token-loading" class="hint" style="padding:8px 0">Token wird erzeugt…</div>
+    </div>
+    <div class="err-text" id="srv-add-err"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeAddServerModal()">Abbrechen</button>
+      <button class="btn primary" id="srv-done-btn" style="display:none" onclick="closeAddServerModal()">Fertig</button>
+    </div>
+  </div>
+</div>
+
+<div id="pw-modal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closePwModal()">
+  <div class="modal" style="width:400px">
+    <h3>Passwort ändern</h3>
+    <label class="f">Aktuelles Passwort</label><input type="password" id="pw-cur" autocomplete="current-password">
+    <label class="f">Neues Passwort (min. 8 Zeichen)</label><input type="password" id="pw-new" autocomplete="new-password">
+    <label class="f">Neues Passwort wiederholen</label><input type="password" id="pw-new2" autocomplete="new-password">
+    <div class="err-text" id="pw-err"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closePwModal()">Abbrechen</button>
+      <button class="btn primary" onclick="changePassword()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script>
+/* ── Helfer ──────────────────────────────────────── */
+const $=id=>document.getElementById(id);
+const fmtVersion=v=>!v?'dev':/^\d/.test(v)?'v'+v:v;
+// newerVersion: ist a (z. B. "0.3.0") höher als b? Nicht-Versionen wie "dev" zählen nie als älter.
+const newerVersion=(a,b)=>{
+  const p=v=>{const m=/^v?(\d+)\.(\d+)\.(\d+)$/.exec(v||'');return m?m.slice(1).map(Number):null};
+  const x=p(a),y=p(b);if(!x||!y)return false;
+  for(let i=0;i<3;i++)if(x[i]!==y[i])return x[i]>y[i];
+  return false;
+};
+const UPDATE_HOWTO='Aktualisieren mit: docker compose pull && docker compose up -d';
+function renderVersion(v,rel){
+  rel=rel||{};me.release=rel;
+  const el=$('ft-version'),u=$('ft-update');
+  el.textContent='DockPilot '+fmtVersion(v);
+  el.title=rel.error&&isAdmin()?'Update-Prüfung fehlgeschlagen: '+rel.error:'';
+  if(rel.update_available){u.textContent=`Update auf ${fmtVersion(rel.latest)} verfügbar`;u.title=UPDATE_HOWTO;u.style.display='';}
+  else u.style.display='none';
+}
+const ico=(n,cls='')=>`<svg class="i ${cls}"><use href="#i-${n}"/></svg>`;
+const esc=t=>String(t??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+const fmtBytes=b=>{if(b==null)return '–';const u=['B','KB','MB','GB','TB'];let i=0;b=+b;
+  while(b>=1024&&i<u.length-1){b/=1024;i++}return b.toFixed(b<10&&i>0?1:0)+' '+u[i]};
+const fmtUp=s=>{if(s==null)return '–';const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
+  return d?`${d}d ${h}h`:(h?`${h}h ${m}m`:`${m}m`)};
+const fmtAgo=s=>{if(!s)return '–';const ms=Date.now()-new Date(s);const h=Math.floor(ms/3600000);if(h<24)return h+' h';return Math.floor(ms/86400000)+' Tagen'};
+let _toastT;
+function toast(msg,err){const t=$('toast');t.textContent=msg;t.className=err?'err show':'show';
+  clearTimeout(_toastT);_toastT=setTimeout(()=>t.className=err?'err':'',3000)}
+function emptyRow(t){return `<div class="hint" style="padding:6px 2px">${t}</div>`}
+
+/* ── Theme ───────────────────────────────────────── */
+function applyThemeIcon(){
+  const light=document.documentElement.dataset.theme==='light';
+  $('theme-ico').innerHTML=`<use href="#i-${light?'moon':'sun'}"/>`;$('theme-label').textContent=light?'Dunkler Modus':'Heller Modus';
+}
+function toggleUserMenu(force){
+  const m=$('user-menu'),open=force!==undefined?force:m.hidden;
+  m.hidden=!open;$('me-btn').setAttribute('aria-expanded',open);
+  if(open)m.querySelector('button').focus();
+}
+const closeUserMenu=()=>toggleUserMenu(false);
+document.addEventListener('click',e=>{if(!$('user-menu').hidden&&!e.target.closest('.sb-foot'))closeUserMenu()});
+$('user-menu').addEventListener('keydown',e=>{
+  if(e.key!=='ArrowDown'&&e.key!=='ArrowUp')return;e.preventDefault();
+  const items=[...$('user-menu').querySelectorAll('button')],i=items.indexOf(document.activeElement);
+  items[(i+(e.key==='ArrowDown'?1:items.length-1))%items.length].focus();
+});
+function toggleTheme(){
+  const t=document.documentElement.dataset.theme==='light'?'dark':'light';
+  document.documentElement.dataset.theme=t;try{localStorage.setItem('dp_theme',t)}catch(e){}
+  applyThemeIcon();
+}
+applyThemeIcon();
+
+/* ── Navigation ──────────────────────────────────── */
+const VIEWS={containers:'Container',stacks:'Stacks',images:'Images',server:'Server & Agents',ssh:'SSH-Zugriff',
+  users:'Benutzer',settings:'Einstellungen'};
+// Ansichten ohne Eintrag sind nur für Admins.
+const VIEW_PERM={containers:'containers.view',stacks:'stacks.view',images:'images.manage',ssh:'ssh.console'};
+const PERM_IDS=['containers.view','containers.control','containers.update','containers.exec','stacks.view','stacks.control','stacks.edit','images.manage','ssh.console'];
+const can=p=>isAdmin()||(me.permissions||[]).includes(p);
+const canServer=id=>isAdmin()||(me.servers||[]).some(s=>s==='*'||s===id);
+const canView=v=>VIEW_PERM[v]?can(VIEW_PERM[v]):isAdmin();
+// Elemente mit Klasse need-<recht> verschwinden, wenn das Recht fehlt.
+(()=>{const st=document.createElement('style');
+  st.textContent=PERM_IDS.map(p=>{const k=p.replace('.','-');return `body.lacks-${k} .need-${k}{display:none!important}`}).join('\n');
+  document.head.appendChild(st)})();
+function applyPerms(){
+  PERM_IDS.forEach(p=>document.body.classList.toggle('lacks-'+p.replace('.','-'),!can(p)));
+  document.querySelectorAll('.nav-btn[data-view]').forEach(b=>b.style.display=canView(b.dataset.view)?'':'none');
+  document.querySelectorAll('nav .nav-grp').forEach(g=>{
+    let n=g.nextElementSibling,any=false;
+    while(n&&!n.classList.contains('nav-grp')){if(n.style.display!=='none')any=true;n=n.nextElementSibling}
+    g.style.display=any?'':'none';
+  });
+  const loc=$('header-server-sel').options[0];loc.hidden=loc.disabled=!canServer('local');
+}
+let activeTab='containers',meLoaded=false;
+function switchTab(v){
+  // Registries sind Teil der Einstellungen; alte Links (#registries) springen dorthin.
+  const toRegistries=v==='registries';if(toRegistries)v='settings';
+  if(!VIEWS[v])v='containers';
+  if(meLoaded&&!canView(v))v=Object.keys(VIEWS).find(canView)||'containers';
+  activeTab=v;
+  Object.keys(VIEWS).forEach(k=>{$('view-'+k).style.display=k===v?'':'none'});
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===v));
+  $('page-title').textContent=VIEWS[v];
+  document.body.classList.remove('nav-open');
+  if(location.hash!=='#'+v)history.replaceState(null,'','#'+v);
+  if(v==='containers')updateMeta();else $('meta').textContent='';
+  const jobs=[];
+  if(v==='stacks')jobs.push(loadStacks());
+  if(v==='images')jobs.push(loadImages());
+  if(v==='server')jobs.push(loadServers());
+  document.body.classList.toggle('full-view',v==='ssh'&&!!_conId);
+  if(v==='ssh'){jobs.push(loadSshServers());if(_conId&&_fitAddon)setTimeout(()=>{_fitAddon.fit();_term.focus()},50);}
+  if(v==='users')jobs.push(loadUsers());
+  if(v==='settings'){jobs.push(loadConfig(),loadRelease(),refreshRegistryList(),refreshInsecureList(),refreshTokenList(),refreshCertList());
+    if(toRegistries)requestAnimationFrame(()=>$('sec-registries').scrollIntoView({behavior:'smooth'}));}
+  return Promise.allSettled(jobs);
+}
+window.addEventListener('hashchange',()=>{const v=location.hash.slice(1);if(v&&v!==activeTab)switchTab(v)});
+
+/* ── Konto & Benutzer ────────────────────────────── */
+let me={username:'',role:'user',version:''};
+const isAdmin=()=>me.role==='admin';
+async function loadMe(){
+  try{
+    const r=await fetch('/api/me');
+    if(r.status===401){location.href='/login';return}
+    if(r.ok)me=await r.json();
+  }catch(e){}
+  meLoaded=true;
+  document.body.classList.toggle('role-user',!isAdmin());
+  $('me-name').textContent=me.username||'–';
+  $('me-role').textContent=isAdmin()?'Admin':'Benutzer';
+  applyPerms();
+  $('me-avatar').textContent=(me.username||'?').slice(0,1);
+  renderVersion(me.version,me.release);
+}
+function openPwModal(){
+  ['pw-cur','pw-new','pw-new2'].forEach(id=>$(id).value='');
+  $('pw-err').textContent='';$('pw-modal').style.display='';$('pw-cur').focus();
+}
+function closePwModal(){$('pw-modal').style.display='none'}
+async function changePassword(){
+  const cur=$('pw-cur').value,nw=$('pw-new').value,nw2=$('pw-new2').value,err=$('pw-err');
+  if(nw.length<8){err.textContent='Neues Passwort muss mindestens 8 Zeichen haben';return}
+  if(nw!==nw2){err.textContent='Passwörter stimmen nicht überein';return}
+  try{
+    const r=await fetch('/api/account/password',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({current_password:cur,new_password:nw})});
+    const j=await r.json().catch(()=>({}));
+    if(r.ok){closePwModal();toast('Passwort geändert')}else err.textContent=j.detail||'Fehler';
+  }catch(e){err.textContent='Netzwerkfehler'}
+}
+let _groups=[],_permCatalog=[],_allServers=[];
+const groupName=id=>(_groups.find(g=>g.id===id)||{}).name;
+async function loadUsers(){
+  const el=$('usr-list');
+  try{
+    const [ru,rg,rs]=await Promise.all([fetch('/api/users'),fetch('/api/groups'),fetch('/api/servers')]);
+    if(!ru.ok||!rg.ok){el.innerHTML=emptyRow('Fehler beim Laden');return}
+    const list=await ru.json(),gj=await rg.json();
+    _groups=gj.groups||[];_permCatalog=gj.permissions||[];_allServers=rs.ok?await rs.json():[];
+    renderGroups();
+    $('usr-new-group').innerHTML='<option value="">ohne Gruppe</option>'+_groups.map(g=>`<option value="${esc(g.id)}">${esc(g.name)}</option>`).join('');
+    if(_groups.some(g=>g.id==='standard'))$('usr-new-group').value='standard';
+    el.innerHTML=list.map(u=>{
+      const n=esc(u.username),self=u.username===me.username,admin=u.role==='admin';
+      const tags=admin?'<span class="badge acc">alle Rechte</span>'
+        :((u.groups||[]).map(id=>groupName(id)).filter(Boolean).map(g=>`<span class="badge mute">${esc(g)}</span>`).join('')||'<span class="hint">keine Gruppe</span>');
+      return `<div class="list-row" data-user="${n}">
+        <div class="avatar" style="width:26px;height:26px;font-size:12px">${n.slice(0,1)}</div>
+        <span class="grow">${n}${self?' <span class="hint">(du)</span>':''}<span class="tags" style="margin-top:3px">${tags}</span></span>
+        <select onchange="setUserRole(this)" aria-label="Rolle">
+          <option value="user"${u.role==='user'?' selected':''}>Benutzer</option>
+          <option value="admin"${admin?' selected':''}>Admin</option>
+        </select>
+        ${admin?'':`<button class="btn sm" onclick="openUserGroups(this)">Gruppen</button>`}
+        <button class="btn sm" onclick="resetUserPassword(this)">Passwort setzen</button>
+        ${self?'':`<button class="ibtn bad" onclick="deleteUser(this)" aria-label="Löschen">${ico('trash')}</button>`}
+      </div>`;
+    }).join('')||emptyRow('Keine Benutzer');
+    window._userList=list;
+  }catch(e){el.innerHTML=emptyRow('Netzwerkfehler')}
+}
+const serverLabel=id=>{
+  if(id==='local')return 'Lokal (dieser Server)';
+  const s=_allServers.find(x=>x.id===id);
+  return s?`${s.name} (${s.type==='agent'?'Agent':'SSH'})`:'gelöschter Server';
+};
+function renderGroups(){
+  $('grp-list').innerHTML=_groups.map(g=>{
+    const id=esc(g.id),np=(g.permissions||[]).length,all=(g.servers||[]).includes('*');
+    const srv=all?'alle Server':`${(g.servers||[]).length} Server`;
+    const members=(window._userList||[]).filter(u=>u.role!=='admin'&&(u.groups||[]).includes(g.id)).length;
+    return `<div class="list-row">
+      <span class="grow"><b>${esc(g.name)}</b> <span class="hint">· ${np} ${np===1?'Recht':'Rechte'} · ${srv} · ${members} ${members===1?'Mitglied':'Mitglieder'}</span></span>
+      <button class="btn sm" onclick="openGroupModal('${id}')">${ico('edit')}Bearbeiten</button>
+      <button class="ibtn bad" onclick="deleteGroup('${id}')" aria-label="Gruppe löschen">${ico('trash')}</button>
+    </div>`;
+  }).join('')||emptyRow('Noch keine Gruppen');
+}
+let _grpEditId=null;
+function openGroupModal(id){
+  _grpEditId=id||null;const g=id?_groups.find(x=>x.id===id):null;
+  $('grp-modal-title').textContent=g?'Gruppe bearbeiten':'Neue Gruppe';
+  $('grp-name').value=g?g.name:'';$('grp-err').textContent='';
+  const has=p=>!!g&&(g.permissions||[]).includes(p),areas=[...new Set(_permCatalog.map(p=>p.area))];
+  $('grp-perms').innerHTML=areas.map(a=>`<div class="perm-area">${esc(a)}</div><div class="chk-grid">`
+    +_permCatalog.filter(p=>p.area===a).map(p=>`<label class="chk"><input type="checkbox" name="grp-perm" value="${esc(p.id)}"${has(p.id)?' checked':''}>${esc(p.label)}</label>`).join('')+'</div>').join('');
+  const sel=g?g.servers||[]:[];
+  const ids=['local',..._allServers.map(x=>x.id),...sel.filter(x=>x!=='*'&&x!=='local'&&!_allServers.some(y=>y.id===x))];
+  $('grp-servers').innerHTML=ids.map(x=>`<label class="chk"><input type="checkbox" name="grp-srv" value="${esc(x)}"${sel.includes(x)?' checked':''}>${esc(serverLabel(x))}</label>`).join('');
+  $('grp-all-servers').checked=sel.includes('*');onGrpAllServers();
+  $('grp-modal').style.display='';$('grp-name').focus();
+}
+function onGrpAllServers(){const all=$('grp-all-servers').checked;document.querySelectorAll('input[name=grp-srv]').forEach(c=>c.disabled=all)}
+function closeGroupModal(){$('grp-modal').style.display='none'}
+async function saveGroup(){
+  const err=$('grp-err'),name=$('grp-name').value.trim();
+  if(!name){err.textContent='Name ist erforderlich';return}
+  const checked=n=>[...document.querySelectorAll(`input[name=${n}]:checked`)].map(c=>c.value);
+  const body={name,permissions:checked('grp-perm'),servers:$('grp-all-servers').checked?['*']:checked('grp-srv')};
+  try{
+    const r=await fetch(_grpEditId?'/api/groups/'+encodeURIComponent(_grpEditId):'/api/groups',{method:_grpEditId?'PUT':'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok){err.textContent=j.detail||'Fehler beim Speichern';return}
+  }catch(e){err.textContent='Netzwerkfehler';return}
+  closeGroupModal();toast(`Gruppe "${name}" gespeichert`);loadUsers();
+}
+async function deleteGroup(id){
+  const g=_groups.find(x=>x.id===id);
+  if(!confirm(`Gruppe "${g?g.name:id}" löschen?\nIhre Mitglieder verlieren die Rechte dieser Gruppe.`))return;
+  const r=await fetch('/api/groups/'+encodeURIComponent(id),{method:'DELETE'});
+  r.ok?toast('Gruppe gelöscht'):toast('Fehler beim Löschen',true);
+  loadUsers();
+}
+let _ugUser=null;
+function openUserGroups(btn){
+  _ugUser=rowUser(btn);const u=(window._userList||[]).find(x=>x.username===_ugUser)||{groups:[]};
+  $('ug-name').textContent=_ugUser;$('ug-err').textContent='';
+  $('ug-list').innerHTML=_groups.map(g=>`<label class="chk"><input type="checkbox" name="ug" value="${esc(g.id)}"${(u.groups||[]).includes(g.id)?' checked':''}>${esc(g.name)}</label>`).join('')
+    ||'<p class="hint">Noch keine Gruppen angelegt.</p>';
+  $('ug-modal').style.display='';
+}
+function closeUserGroups(){$('ug-modal').style.display='none'}
+async function saveUserGroups(){
+  const groups=[...document.querySelectorAll('input[name=ug]:checked')].map(c=>c.value);
+  try{await userReq('PUT',_ugUser,{groups});closeUserGroups();toast(`Gruppen von "${_ugUser}" gespeichert`);loadUsers();}
+  catch(e){$('ug-err').textContent=e.message}
+}
+const rowUser=el=>el.closest('.list-row').dataset.user;
+async function userReq(method,name,body){
+  const r=await fetch('/api/users'+(name?'/'+encodeURIComponent(name):''),{method,
+    headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(j.detail||r.status);
+}
+async function createUser(){
+  const name=$('usr-new-name').value.trim(),pass=$('usr-new-pass').value,role=$('usr-new-role').value,err=$('usr-err');
+  const grp=$('usr-new-group').value,groups=role==='admin'||!grp?[]:[grp];
+  err.textContent='';
+  if(!name||pass.length<8){err.textContent='Benutzername und Passwort (min. 8 Zeichen) erforderlich';return}
+  try{
+    await userReq('POST','',{username:name,password:pass,role,groups});
+    $('usr-new-name').value='';$('usr-new-pass').value='';
+    toast(`Benutzer "${name}" angelegt`);loadUsers();
+  }catch(e){err.textContent=e.message}
+}
+async function setUserRole(sel){
+  const name=rowUser(sel);
+  try{await userReq('PUT',name,{role:sel.value});toast(`Rolle von "${name}" geändert`);loadUsers();
+    if(name===me.username&&sel.value!=='admin')location.reload();}
+  catch(e){toast('Fehler: '+e.message,true);loadUsers()}
+}
+async function resetUserPassword(btn){
+  const name=rowUser(btn);
+  const pw=prompt(`Neues Passwort für "${name}" (min. 8 Zeichen):`);
+  if(pw==null)return;
+  if(pw.length<8){toast('Passwort muss mindestens 8 Zeichen haben',true);return}
+  try{await userReq('PUT',name,{password:pw});toast(`Passwort von "${name}" gesetzt`)}
+  catch(e){toast('Fehler: '+e.message,true)}
+}
+async function deleteUser(btn){
+  const name=rowUser(btn);
+  if(!confirm(`Benutzer "${name}" löschen?`))return;
+  try{await userReq('DELETE',name);toast(`Benutzer "${name}" gelöscht`);loadUsers()}
+  catch(e){toast('Fehler: '+e.message,true)}
+}
+
+/* ── Einstellungen: Modus ────────────────────────── */
+function onCfgModeChange(){$('cfg-agent-fields').style.display=$('cfg-mode').value==='agent'?'flex':'none'}
+async function loadConfig(){
+  try{
+    const r=await fetch('/api/setup/mode');if(!r.ok)return;
+    const j=await r.json(),mode=j.mode||'standalone';
+    $('cfg-cur-mode').textContent=mode;$('cfg-mode').value=mode;onCfgModeChange();
+    if(mode==='agent'){if(j.hub_url)$('cfg-hub-url').value=j.hub_url;if(j.agent_name)$('cfg-agent-name').value=j.agent_name;}
+  }catch(e){}
+}
+async function saveMode(){
+  const mode=$('cfg-mode').value,st=$('cfg-mode-status'),body={mode};
+  if(mode==='agent'){body.hub_url=$('cfg-hub-url').value.trim();body.agent_token=$('cfg-agent-token').value.trim();body.agent_name=$('cfg-agent-name').value.trim();}
+  try{
+    const r=await fetch('/api/setup/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(r.ok){st.textContent='Gespeichert, lade neu…';setTimeout(()=>location.reload(),1500);}
+    else{const j=await r.json().catch(()=>({}));st.textContent=j.detail||'Fehler';}
+  }catch(e){st.textContent='Netzwerkfehler'}
+}
+
+/* ── Server-Auswahl & Host ───────────────────────── */
+let busy={},sz={},last=[],activeServer='',agentServerList=[];
+async function loadAgentServers(){
+  try{
+    const r=await fetch('/api/servers');if(!r.ok)return;
+    agentServerList=(await r.json()).filter(s=>s.type==='agent'&&s.url);
+    const sel=$('header-server-sel');
+    while(sel.options.length>1)sel.remove(1);
+    agentServerList.forEach(s=>{const o=document.createElement('option');o.value=s.id;o.textContent=s.name;sel.appendChild(o);});
+    if(activeServer)sel.value=activeServer;
+  }catch(e){}
+}
+// Ladebalken oben, bis alle übergebenen Abrufe fertig sind. Ein neuerer Aufruf übernimmt den Balken.
+let _loadSeq=0;
+function trackLoading(promises){
+  const seq=++_loadSeq,bar=$('loadbar');
+  bar.classList.add('on');bar.setAttribute('aria-hidden','false');
+  Promise.allSettled(promises).finally(()=>{if(seq!==_loadSeq)return;bar.classList.remove('on');bar.setAttribute('aria-hidden','true');});
+}
+function switchServer(id){
+  activeServer=id;
+  clearInterval(_hostTimer);
+  $('host').innerHTML='';hostHist={cpu:[],mem:[]};hostHover=null;
+  const jobs=[];
+  if(id){jobs.push(loadAgentHost(id));_hostTimer=setInterval(()=>loadAgentHost(activeServer),5000);}
+  else{jobs.push(loadHost());_hostTimer=setInterval(loadHost,5000);}
+  jobs.push(loadAgentVersion());
+  $('container-grid').innerHTML='<div class="empty-state">lädt…</div>';last=[];
+  jobs.push(load());
+  if(activeTab==='stacks'){closeEditor();jobs.push(loadStacks());}
+  if(activeTab==='images'){$('img-grid').innerHTML='<div class="empty-state">lädt…</div>';jobs.push(loadImages());}
+  return Promise.allSettled(jobs);
+}
+async function loadAgentVersion(){
+  const el=$('ft-agent');
+  if(!activeServer){el.style.display='none';return}
+  const srv=activeServer,name=(agentServerList.find(s=>s.id===srv)||{}).name||'Agent';
+  el.textContent=`${name}: …`;el.style.display='';
+  try{
+    const r=await fetch(`/api/servers/${srv}/version`);const j=await r.json().catch(()=>({}));
+    if(srv!==activeServer)return;
+    const latest=(me.release||{}).latest,old=r.ok&&newerVersion(latest,j.version);
+    el.textContent=`${name}: `+(r.ok?fmtVersion(j.version):'nicht erreichbar')+(old?` (Update auf ${fmtVersion(latest)} verfügbar)`:'');
+    el.className=old?'ft-update':'';el.title=old?UPDATE_HOWTO:'';
+  }catch(e){if(srv===activeServer)el.textContent=`${name}: nicht erreichbar`}
+}
+/* Auslastung: Verlauf der letzten 5 Minuten (alle 5 s ein Wert), nur im Browser gehalten. */
+const HIST_MAX=60;
+let hostHist={cpu:[],mem:[]},hostHover=null;
+function pushHist(k,v){if(v==null)return;const a=hostHist[k];a.push({t:Date.now(),v});if(a.length>HIST_MAX)a.shift()}
+const level=p=>p==null?'':p>=90?'crit':p>=75?'warn':'ok';
+const chipFor=p=>({ok:'<span class="chip-st ok">Normal</span>',warn:'<span class="chip-st warn">Hoch</span>',crit:'<span class="chip-st crit">Kritisch</span>'})[level(p)]||'';
+const pct=v=>v==null?'–':Math.round(v)+' %';
+function meter(p,label){
+  const v=Math.max(0,Math.min(100,p||0)),l=level(p);
+  return `<div class="meter" role="meter" aria-label="${label}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(v)}">`
+    +`<i class="${l==='ok'?'':l}" style="width:${v}%"></i><b style="left:75%"></b><b style="left:90%"></b></div>`
+    +`<div class="meter-scale"><span style="left:75%">75 %</span><span style="left:90%">90 %</span></div>`;
+}
+// x: neuester Wert rechts; y: 0–100 % auf 0–32 Einheiten
+const sparkX=(a,i)=>(HIST_MAX-a.length+i)/(HIST_MAX-1)*100;
+const sparkY=v=>32-Math.min(100,Math.max(0,v))/100*31;
+function spark(k,label){
+  const a=hostHist[k];
+  if(a.length<2)return `<div class="spark empty">Verlauf wird aufgezeichnet …</div><div class="spark-x"><span>vor 5 Min</span><span>jetzt</span></div>`;
+  const pts=a.map((p,i)=>sparkX(a,i).toFixed(2)+','+sparkY(p.v).toFixed(2));
+  const first=sparkX(a,0).toFixed(2),ln='M'+pts.join('L');
+  return `<div class="spark" data-k="${k}" data-label="${label}" aria-label="${label}-Verlauf der letzten 5 Minuten">`
+    +`<svg viewBox="0 0 100 32" preserveAspectRatio="none" aria-hidden="true"><line class="lim" x1="0" x2="100" y1="${sparkY(90)}" y2="${sparkY(90)}"/>`
+    +`<path class="ar" d="${ln}L100,32L${first},32Z"/><path class="ln" d="${ln}"/></svg></div>`
+    +`<div class="spark-x"><span>vor 5 Min</span><span>jetzt</span></div>`;
+}
+function showSparkHover(el,f){
+  el.querySelectorAll('.spark-cross,.spark-dot,.spark-tip').forEach(n=>n.remove());
+  const a=hostHist[el.dataset.k];if(!a||a.length<2)return;
+  const i=Math.max(0,Math.min(a.length-1,Math.round(f*(HIST_MAX-1))-(HIST_MAX-a.length))),p=a[i];
+  const x=sparkX(a,i),h=el.clientHeight-8,y=8+sparkY(p.v)/32*h,ago=Math.round((Date.now()-p.t)/1000);
+  el.insertAdjacentHTML('beforeend',`<div class="spark-cross" style="left:${x}%"></div><div class="spark-dot" style="left:${x}%;top:${y}px"></div>`
+    +`<div class="spark-tip" style="left:${Math.min(88,Math.max(12,x))}%">${el.dataset.label} ${pct(p.v)} <span>· ${ago<5?'jetzt':'vor '+(ago<60?ago+' s':Math.round(ago/60)+' Min')}</span></div>`);
+}
+function hostPointer(e){
+  const el=e.target.closest('.spark[data-k]');
+  if(!el||e.type==='pointerleave'){if(hostHover){hostHover=null;document.querySelectorAll('#host .spark-cross,#host .spark-dot,#host .spark-tip').forEach(n=>n.remove())}return}
+  const r=el.getBoundingClientRect(),f=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
+  hostHover={k:el.dataset.k,f};showSparkHover(el,f);
+}
+['pointermove','pointerdown','pointerleave'].forEach(ev=>$('host').addEventListener(ev,hostPointer));
+const DOCKER_PARTS=[['images','Images'],['containers','Container'],['volumes','Volumes'],['build_cache','Build-Cache']];
+function _renderHostSection(h){
+  pushHist('cpu',h.cpu);pushHist('mem',h.mem_pct);
+  const d=h.disk,dk=h.docker;
+  let c=`<div class="host-meta"><span><b>${h.cpus||'–'}</b> CPU-Kerne</span>`
+    +(h.load?`<span>Load <b>${h.load.map(x=>x.toFixed(2)).join(' · ')}</b> (1 · 5 · 15 Min)</span>`:'')
+    +(h.uptime?`<span>Läuft seit <b>${fmtUp(h.uptime)}</b></span>`:'')+`</div>`;
+  const tile=(lbl,p,val,sub,body)=>`<div class="card mt"><div class="mt-top"><span class="lbl">${lbl}</span>${chipFor(p)}</div>`
+    +`<div class="mt-val"><span class="val">${val}</span><span class="sub">${sub}</span></div>${body}</div>`;
+  c+=tile('CPU',h.cpu,pct(h.cpu),'',spark('cpu','CPU'));
+  c+=tile('Arbeitsspeicher',h.mem_pct,pct(h.mem_pct),h.mem_total?`${fmtBytes(h.mem_used)} von ${fmtBytes(h.mem_total)}`:'',spark('mem','RAM'));
+  if(d&&d.total){const p=d.used/d.total*100;c+=tile('Festplatte',p,pct(p),`${fmtBytes(d.free)} frei von ${fmtBytes(d.total)}`,meter(p,'Festplatte belegt'))}
+  if(dk){
+    const tot=DOCKER_PARTS.reduce((s,[k])=>s+(dk[k]||0),0);
+    const seg=DOCKER_PARTS.map(([k,n],i)=>dk[k]>0&&tot?`<i style="width:${dk[k]/tot*100}%;background:var(--viz-${i+1})" title="${n}: ${fmtBytes(dk[k])}"></i>`:'').join('');
+    const leg=DOCKER_PARTS.map(([k,n],i)=>`<div><span class="sw" style="background:var(--viz-${i+1})"></span>${n}${k==='images'&&dk.images_count!=null?` <span class="hint">(${dk.images_count})</span>`:''}<span class="v">${fmtBytes(dk[k]||0)}</span></div>`).join('');
+    c+=`<div class="card mt"><div class="mt-top"><span class="lbl">Docker-Speicher</span></div><div class="mt-val"><span class="val">${fmtBytes(tot)}</span><span class="sub">gesamt</span></div>`
+      +`<div class="stack" role="img" aria-label="Aufteilung des Docker-Speichers">${seg}</div><div class="legend">${leg}</div></div>`;
+  }
+  $('host').innerHTML=c;
+  if(hostHover){const el=document.querySelector(`#host .spark[data-k="${hostHover.k}"]`);if(el)showSparkHover(el,hostHover.f)}
+}
+async function loadHost(){if(meLoaded&&!can('containers.view'))return;try{const r=await fetch('/api/host');if(!r.ok||activeServer)return;_renderHostSection(await r.json());}catch(e){}}
+async function loadAgentHost(serverId){try{const r=await fetch(`/api/servers/${serverId}/host`);if(!r.ok||serverId!==activeServer)return;_renderHostSection(await r.json());}catch(e){}}
+async function loadSizes(){if(meLoaded&&!can('containers.view'))return;try{const r=await fetch('/api/sizes');if(r.ok)sz=await r.json()}catch(e){}}
+
+/* ── Container ───────────────────────────────────── */
+let cFilter='all',cSearch='';
+function setFilter(f){cFilter=f;document.querySelectorAll('#c-chips .chip').forEach(b=>b.classList.toggle('on',b.dataset.f===f));render(last)}
+function getCollapsed(){try{return new Set(JSON.parse(localStorage.getItem('dp_collapsed'))||[])}catch{return new Set()}}
+function toggleGroup(g){
+  const s=getCollapsed();s.has(g)?s.delete(g):s.add(g);
+  try{localStorage.setItem('dp_collapsed',JSON.stringify([...s]))}catch(e){}
+  document.querySelector(`.group-section[data-stack="${CSS.escape(g)}"]`)?.classList.toggle('collapsed');
+}
+async function act(id,action){
+  const name=(last.find(c=>c.id===id)||{}).name||id;
+  if(action==='update'&&!confirm(`"${name}" aktualisieren?\nDas Image wird neu gezogen und der Container neu erstellt.`))return;
+  if(action==='stop'&&!confirm(`"${name}" stoppen?`))return;
+  busy[id]=true;render(last);
+  try{
+    const url=activeServer?`/api/servers/${activeServer}/containers/${id}/${action}`:`/api/containers/${id}/${action}`;
+    const r=await fetch(url,{method:'POST'});
+    if(r.status===401){location.href='/login';return}
+    const j=await r.json().catch(()=>({}));
+    const verb={start:'gestartet',stop:'gestoppt',restart:'neu gestartet',update:'aktualisiert'}[action]||action;
+    r.ok?toast(`${name} ${verb}`):toast('Fehler: '+(j.detail||r.status),true);
+  }catch(e){toast('Fehler: '+e,true)}
+  busy[id]=false;await load();
+}
+function getOrder(){try{return JSON.parse(localStorage.getItem('dp_order'))||{}}catch{return {}}}
+function saveOrder(){
+  const o={};
+  document.querySelectorAll('.ccard-grid').forEach(g=>{o[g.dataset.group]=[...g.querySelectorAll('.ccard')].map(c=>c.dataset.name)});
+  localStorage.setItem('dp_order',JSON.stringify(o));
+}
+function getStackOrder(){try{return JSON.parse(localStorage.getItem('dp_stack_order'))||[]}catch{return[]}}
+function saveStackOrder(){
+  localStorage.setItem('dp_stack_order',JSON.stringify([...document.querySelectorAll('#container-grid>.group-section')].map(s=>s.dataset.stack)));
+}
+let dragSrc=null,dragStack=null;
+function initDrag(){
+  document.querySelectorAll('.ccard').forEach(card=>{
+    card.addEventListener('dragstart',function(e){dragSrc=this;e.dataTransfer.effectAllowed='move';
+      e.dataTransfer.setData('text/plain',this.dataset.name);setTimeout(()=>this.classList.add('dragging'),0);});
+    card.addEventListener('dragend',function(){this.classList.remove('dragging');
+      document.querySelectorAll('.ccard').forEach(c=>c.classList.remove('drag-over'));dragSrc=null;});
+    card.addEventListener('dragover',function(e){if(!dragSrc)return;e.preventDefault();e.dataTransfer.dropEffect='move';this.classList.add('drag-over');});
+    card.addEventListener('dragleave',function(){this.classList.remove('drag-over')});
+    card.addEventListener('drop',function(e){
+      e.preventDefault();e.stopPropagation();this.classList.remove('drag-over');
+      if(!dragSrc||dragSrc===this)return;
+      const tp=this.closest('.ccard-grid'),sp=dragSrc.closest('.ccard-grid');
+      const all=[...tp.querySelectorAll('.ccard')],di=all.indexOf(this),si=all.indexOf(dragSrc);
+      if(sp===tp&&si<di)tp.insertBefore(dragSrc,this.nextSibling);else tp.insertBefore(dragSrc,this);
+      saveOrder();
+    });
+  });
+}
+function initStackDrag(){
+  document.querySelectorAll('.group-section').forEach(sec=>{
+    sec.addEventListener('dragstart',function(e){if(e.target.closest('.ccard'))return;dragStack=this;
+      e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain','stack');setTimeout(()=>this.classList.add('stack-dragging'),0);});
+    sec.addEventListener('dragend',function(){this.classList.remove('stack-dragging');
+      document.querySelectorAll('.group-section').forEach(s=>s.classList.remove('stack-drag-over'));dragStack=null;});
+    sec.addEventListener('dragover',function(e){if(!dragStack||dragStack===this)return;e.preventDefault();this.classList.add('stack-drag-over');});
+    sec.addEventListener('dragleave',function(e){if(!e.relatedTarget||!this.contains(e.relatedTarget))this.classList.remove('stack-drag-over');});
+    sec.addEventListener('drop',function(e){
+      this.classList.remove('stack-drag-over');
+      if(!dragStack||dragStack===this)return;
+      e.preventDefault();e.stopPropagation();
+      const p=this.parentNode,all=[...p.querySelectorAll(':scope>.group-section')],di=all.indexOf(this),si=all.indexOf(dragStack);
+      if(si<di)p.insertBefore(dragStack,this.nextSibling);else p.insertBefore(dragStack,this);
+      saveStackOrder();
+    });
+  });
+}
+function statCell(lbl,v){
+  const p=v==null?0:Math.min(100,v);
+  return `<div class="c-stat"><span class="l">${lbl}</span><span class="b"><i style="width:${p}%"></i></span><span class="v">${v==null?'–':Math.round(v)+'%'}</span></div>`;
+}
+function renderCard(c){
+  const b=busy[c.id],dis=b?'disabled':'',id=esc(c.id);
+  const btn=(action,icon,label,cls='')=>`<button class="ibtn ${cls}" ${dis} title="${label}" aria-label="${label}" onclick="act('${id}','${action}')">${ico(icon)}</button>`;
+  const acts=b?`<span class="ibtn">${ico('restart','spin')}</span>`
+    :`<span class="need-containers-control">${c.running?btn('stop','stop','Stoppen','bad')+btn('restart','restart','Neu starten'):btn('start','play','Starten','ok')}</span>`
+     +`<span class="need-containers-update">${btn('update','download','Image aktualisieren')}</span>`
+     +(c.running?`<span class="need-containers-exec"><button class="ibtn" ${dis} title="Konsole" aria-label="Konsole" onclick="openContainerConsole('${id}','${esc(c.name)}')">${ico('term')}</button></span>`:'');
+  return `<div class="ccard" draggable="true" data-id="${id}" data-name="${esc(c.name)}">
+    <span class="dot ${c.running?'up':'down'}"></span>
+    <div style="min-width:0"><div class="c-name">${esc(c.name)}</div><div class="c-img" title="${esc(c.image)}">${esc(c.image)}</div></div>
+    <div class="c-status ${c.running?'':'off'}" title="${esc(c.status)}">${esc(c.status)}</div>
+    ${c.running?statCell('CPU',c.cpu)+statCell('RAM',c.mem):'<div class="c-stat"></div><div class="c-stat"></div>'}
+    <div class="c-acts">${acts}</div>
+  </div>`;
+}
+function updateMeta(){
+  if(activeTab!=='containers')return;
+  const up=last.filter(c=>c.running).length;
+  $('meta').textContent=last.length?`${up} von ${last.length} aktiv`:'';
+}
+function render(list){
+  last=list;
+  const grid=$('container-grid');
+  if(!list.length){grid.innerHTML='<div class="empty-state">Keine Container auf diesem Server</div>';return}
+  const shown=list.filter(c=>(cFilter==='all'||(cFilter==='run')===c.running)&&
+    (!cSearch||c.name.toLowerCase().includes(cSearch)||(c.image||'').toLowerCase().includes(cSearch)||(c.stack||'').toLowerCase().includes(cSearch)));
+  if(!shown.length){grid.innerHTML='<div class="empty-state">Keine Container passen zum Filter</div>';return}
+  const order=getOrder(),stackOrder=getStackOrder(),collapsed=getCollapsed(),groups={};
+  shown.forEach(c=>{const g=c.stack?(c.stack+'').toLowerCase():'__solo__';(groups[g]=groups[g]||[]).push(c)});
+  const keys=Object.keys(groups).sort((a,b)=>{
+    if(a==='__solo__')return 1;if(b==='__solo__')return -1;
+    const ia=stackOrder.indexOf(a),ib=stackOrder.indexOf(b);
+    if(ia<0&&ib<0)return a.localeCompare(b);if(ia<0)return 1;if(ib<0)return -1;return ia-ib;
+  });
+  grid.innerHTML=keys.map(g=>{
+    const grp=groups[g],label=g==='__solo__'?'Einzelne Container':(grp[0]?.stack||g);
+    const run=grp.filter(c=>c.running).length,total=grp.length;
+    const dot=run===total?'up':run>0?'partial':'down',saved=order[g]||[];
+    const sorted=[...grp].sort((a,b)=>{const ia=saved.indexOf(a.name),ib=saved.indexOf(b.name);
+      if(ia<0&&ib<0)return 0;if(ia<0)return 1;if(ib<0)return -1;return ia-ib;});
+    return `<section class="group-section${collapsed.has(g)?' collapsed':''}" draggable="true" data-stack="${esc(g)}">
+      <div class="group-hdr" onclick="toggleGroup(this.parentNode.dataset.stack)">${ico('chev','chev')}<span class="dot ${dot}"></span>${esc(label)}<span class="cnt">${run} / ${total} aktiv</span></div>
+      <div class="ccard-grid" data-group="${esc(g)}">${sorted.map(renderCard).join('')}</div></section>`;
+  }).join('');
+  initDrag();initStackDrag();
+}
+async function load(){if(meLoaded&&!can('containers.view'))return;try{
+  const srv=activeServer,url=srv?`/api/servers/${srv}/containers`:'/api/containers';
+  const r=await fetch(url);
+  if(r.status===401){location.href='/login';return}
+  if(srv!==activeServer)return;
+  if(!r.ok){const j=await r.json().catch(()=>({}));
+    if(activeTab==='containers')$('meta').textContent='Verbindungsfehler';
+    if(!last.length)$('container-grid').innerHTML=`<div class="empty-state">Keine Verbindung: ${esc(j.detail||r.status)}</div>`;
+    return}
+  const list=await r.json();if(srv!==activeServer)return;
+  if(!document.querySelector('.ccard.dragging'))render(list);else last=list;
+  updateMeta();
+  if(activeTab==='stacks')loadStacks();
+}catch(e){if(activeTab==='containers')$('meta').textContent='Verbindungsfehler'}}
+
+/* ── Stacks ──────────────────────────────────────── */
+let currentStack=null,stackBusy=false;
+const TMPL=`services:
+  myservice:
+    image:
+    container_name:
+    restart: unless-stopped
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
+    name: proxy
+`;
+const stackUrl=(name,suffix='')=>(activeServer?`/api/servers/${activeServer}/stacks/${name}`:`/api/stacks/${name}`)+suffix;
+async function loadStacks(){
+  try{
+    const r=await fetch(activeServer?`/api/servers/${activeServer}/stacks`:'/api/stacks');
+    if(r.status===401){location.href='/login';return}
+    const stacks=(await r.json())||[];
+    let html=stacks.map(s=>{
+      const n=esc(s.name);
+      const ctrs=last.filter(c=>(c.stack||'').toLowerCase()===(s.name||'').toLowerCase());
+      const total=ctrs.length,run=ctrs.filter(c=>c.running).length;
+      const dot=total===0?'down':run===total?'up':run>0?'partial':'down';
+      const meta=total===0?'keine Container':`${run} von ${total} laufen`;
+      const qb=(a,i,l,c='')=>`<button class="ibtn ${c}" title="${l}" aria-label="${l}" onclick="event.stopPropagation();quickAction('${n}','${a}')">${ico(i)}</button>`;
+      return `<div class="scard${currentStack===s.name?' active':''}" onclick="openStack('${n}')">
+        <div class="scard-name">${n}</div>
+        <div class="scard-meta"><span class="dot ${dot}"></span>${meta}</div>
+        <div class="scard-acts"><span class="need-stacks-control">${qb('up','play','Deploy','ok')}${qb('down','stop','Down','bad')}</span><span class="need-stacks-edit">${qb('pull','download','Pull')}</span>${qb('logs','logs','Logs')}</div>
+      </div>`;
+    }).join('');
+    if(!stacks.length&&!can('stacks.edit'))html='<div class="empty-state">Keine Stacks vorhanden</div>';
+    html+=`<div class="scard scard-new need-stacks-edit" onclick="newStack()">${ico('plus')}Neuer Stack</div>`;
+    $('scard-grid').innerHTML=html;
+  }catch(e){}
+}
+async function quickAction(name,action){
+  const prev=currentStack;currentStack=name;
+  $('stack-editor').style.display='';$('editor-title').textContent=name;
+  await stackAction(action);
+  currentStack=prev||name;
+}
+function closeEditor(){$('stack-editor').style.display='none';currentStack=null;loadStacks()}
+async function openStack(name){
+  currentStack=name;
+  try{
+    const r=await fetch(stackUrl(name,'/file'));if(!r.ok)throw 0;
+    const {content}=await r.json();
+    $('compose-editor').value=content;$('compose-editor').readOnly=!can('stacks.edit');
+    $('editor-title').textContent=name;$('stack-editor').style.display='';$('stack-output').style.display='none';
+    $('stack-editor').scrollIntoView({behavior:'smooth',block:'nearest'});
+    loadStacks();
+  }catch(e){toast('Stack konnte nicht geladen werden',true)}
+}
+async function saveStack(){
+  const r=await fetch(stackUrl(currentStack,'/file'),{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({content:$('compose-editor').value})});
+  if(r.ok){toast('Gespeichert');loadStacks()}
+  else{const j=await r.json().catch(()=>({}));toast('Fehler: '+(j.detail||r.status),true)}
+}
+async function stackAction(action){
+  if(stackBusy)return;
+  if(action==='down'&&!confirm(`Stack "${currentStack}" herunterfahren?`))return;
+  stackBusy=true;setStackBtns(true);showOutput('Läuft…');
+  try{
+    const r=await fetch(stackUrl(currentStack,'/'+action),{method:'POST'});
+    if(r.status===401){location.href='/login';return}
+    const j=await r.json().catch(()=>({}));
+    r.ok?(showOutput(j.out||'OK'),toast(`${action} abgeschlossen`)):(showOutput(j.detail||'Fehler'),toast('Fehler: '+(j.detail||r.status),true));
+  }catch(e){showOutput('Fehler: '+e);toast('Fehler',true)}
+  stackBusy=false;setStackBtns(false);load();
+}
+function setStackBtns(d){document.querySelectorAll('.stack-toolbar button').forEach(b=>b.disabled=d)}
+function showOutput(t){const el=$('stack-output');el.textContent=t;el.style.display=t?'':'none';if(t)el.scrollTop=el.scrollHeight}
+async function deleteStack(){
+  if(!confirm(`Stack "${currentStack}" löschen?\nDie Container werden dabei nicht gestoppt.`))return;
+  const r=await fetch(stackUrl(currentStack),{method:'DELETE'});
+  if(r.ok){toast(currentStack+' gelöscht');closeEditor()}else toast('Fehler beim Löschen',true);
+}
+function newStack(){
+  const name=prompt('Name des Stacks (Buchstaben, Ziffern, - und _):');
+  if(!name||!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(name)){if(name)toast('Ungültiger Name',true);return}
+  currentStack=name;
+  $('compose-editor').value=TMPL;$('compose-editor').readOnly=false;
+  $('editor-title').textContent=name+' (neu)';$('stack-editor').style.display='';$('stack-output').style.display='none';
+  $('stack-editor').scrollIntoView({behavior:'smooth',block:'nearest'});
+  loadStacks();toast('Anpassen und dann speichern');
+}
+async function openImportDialog(){
+  $('imp-url').value='';$('imp-name').value='';$('imp-err').textContent='';
+  const r=await fetch('/api/tokens');const names=r.ok?await r.json():[];
+  $('imp-token').innerHTML='<option value="">Kein Token</option>'+names.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  $('import-modal').style.display='';
+}
+function closeImportDialog(){$('import-modal').style.display='none'}
+async function doImport(){
+  const url=$('imp-url').value.trim(),name=$('imp-name').value.trim(),token=$('imp-token').value,err=$('imp-err'),btn=$('imp-btn');
+  if(!url||!name){err.textContent='URL und Stack-Name sind erforderlich.';return}
+  err.textContent='';btn.disabled=true;btn.textContent='Lädt…';
+  try{
+    const r=await fetch('/api/stacks/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url,name,token})});
+    const j=await r.json().catch(()=>({}));
+    if(r.ok){closeImportDialog();toast(`"${name}" importiert`);loadStacks();}else err.textContent=j.detail||'Fehler';
+  }catch(e){err.textContent='Netzwerkfehler: '+e.message}
+  btn.disabled=false;btn.textContent='Importieren';
+}
+
+/* ── Registries & Tokens ─────────────────────────── */
+// entryRow: Eintrag in einer Registries-Kachel mit Name, Beschreibung und Entfernen-Button.
+const entryRow=(name,desc,fn,arg)=>`<div class="entry"><div class="grow"><div class="nm" title="${esc(name)}">${esc(name)}</div><div class="ds">${desc}</div></div>`
+  +`<button class="ibtn bad" aria-label="${esc(name)} entfernen" onclick="${fn}('${esc(arg)}')">${ico('trash')}</button></div>`;
+const tileEmpty=t=>`<div class="tile-empty">${t}</div>`;
+let _regs=[],_insecure=[];
+const sameReg=(a,b)=>a.replace(/^https?:\/\//,'').replace(/\/$/,'')===b.replace(/^https?:\/\//,'').replace(/\/$/,'');
+function renderRegistryList(){
+  $('reg-count').textContent=_regs.length;
+  $('registry-list').innerHTML=_regs.length?_regs.map(g=>entryRow(g.registry,
+    `<span>Benutzer: ${esc(g.username||'–')}</span>`+(_insecure.some(x=>sameReg(x,g.registry))?'<span class="badge mute">HTTP-Registry</span>':''),
+    'deleteRegistry',g.registry)).join(''):tileEmpty('Noch keine Registry-Logins gespeichert.');
+}
+async function refreshTokenList(){
+  const r=await fetch('/api/tokens');const names=r.ok?await r.json():[];
+  $('tok-count').textContent=names.length;
+  $('token-list').innerHTML=names.length?names.map(n=>entryRow(n,'Bearer-Token','deleteToken',n)).join(''):tileEmpty('Noch keine Tokens gespeichert.');
+}
+async function saveToken(){
+  const name=$('tok-name').value.trim(),value=$('tok-value').value.trim(),err=$('tok-err');
+  if(!name||!value){err.textContent='Name und Wert sind erforderlich.';return}
+  if(!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(name)){err.textContent='Ungültiger Name (Buchstaben, Ziffern, - und _).';return}
+  err.textContent='';
+  const r=await fetch(`/api/tokens/${encodeURIComponent(name)}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({value})});
+  if(r.ok){$('tok-name').value='';$('tok-value').value='';toast('Token gespeichert');refreshTokenList();}
+  else{const j=await r.json().catch(()=>({}));err.textContent=j.detail||'Fehler'}
+}
+async function deleteToken(name){
+  if(!confirm(`Token "${name}" löschen?`))return;
+  const r=await fetch(`/api/tokens/${encodeURIComponent(name)}`,{method:'DELETE'});
+  r.ok?(toast('Token gelöscht'),refreshTokenList()):toast('Fehler beim Löschen',true);
+}
+async function refreshRegistryList(){
+  const r=await fetch('/api/registries');_regs=r.ok?await r.json():[];
+  // Ältere Agents/Hubs liefern nur Namen.
+  _regs=_regs.map(g=>typeof g==='string'?{registry:g,username:''}:g);
+  renderRegistryList();
+}
+async function saveRegistry(){
+  const registry=$('reg-url').value.trim(),username=$('reg-user').value.trim(),password=$('reg-pass').value.trim(),err=$('reg-err');
+  if(!registry||!username||!password){err.textContent='Alle Felder sind erforderlich.';return}
+  err.textContent='';
+  const r=await fetch('/api/registries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({registry,username,password})});
+  if(r.ok){$('reg-url').value='';$('reg-user').value='';$('reg-pass').value='';toast('Registry gespeichert');refreshRegistryList();}
+  else{const j=await r.json().catch(()=>({}));err.textContent=j.detail||'Fehler'}
+}
+async function deleteRegistry(reg){
+  if(!confirm(`Registry "${reg}" entfernen?`))return;
+  const r=await fetch(`/api/registries/${encodeURIComponent(reg)}`,{method:'DELETE'});
+  r.ok?(toast('Registry entfernt'),refreshRegistryList()):toast('Fehler beim Löschen',true);
+}
+async function refreshInsecureList(){
+  const r=await fetch('/api/insecure-registries');const regs=r.ok?await r.json():[];
+  _insecure=regs;$('ins-count').textContent=regs.length;
+  $('insecure-list').innerHTML=regs.length?regs.map(g=>entryRow(g,'TLS-Prüfung aus · daemon.json','deleteInsecure',g)).join(''):tileEmpty('Keine HTTP-Registries eingetragen.');
+  renderRegistryList();
+}
+async function saveInsecure(){
+  const registry=$('ins-registry').value.trim(),err=$('ins-err');
+  if(!registry){err.textContent='Registry-Adresse erforderlich.';return}
+  err.textContent='Schreibe daemon.json und lade den Daemon neu…';
+  const r=await fetch('/api/insecure-registries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({registry})});
+  if(r.ok){$('ins-registry').value='';err.textContent='';toast('Registry hinzugefügt, Daemon wird neu geladen');refreshInsecureList();}
+  else{const j=await r.json().catch(()=>({}));err.textContent=j.detail||'Fehler: daemon.json nicht beschreibbar? /etc/docker mounten.';}
+}
+async function deleteInsecure(reg){
+  if(!confirm(`HTTP-Registry "${reg}" entfernen?`))return;
+  const r=await fetch(`/api/insecure-registries/${encodeURIComponent(reg)}`,{method:'DELETE'});
+  r.ok?(toast('Entfernt, Daemon wird neu geladen'),refreshInsecureList()):toast('Fehler beim Entfernen',true);
+}
+
+/* ── Images ──────────────────────────────────────── */
+const imageUrl=(suffix='')=>(activeServer?`/api/servers/${activeServer}/images`:'/api/images')+suffix;
+async function loadImages(){
+  const srv=activeServer;
+  try{
+    const r=await fetch(imageUrl());
+    if(r.status===401){location.href='/login';return}
+    if(srv!==activeServer)return;
+    if(!r.ok){const j=await r.json().catch(()=>({}));$('img-meta').textContent='';$('img-grid').innerHTML=`<div class="empty-state">Fehler: ${esc(j.detail||r.status)}</div>`;return}
+    const imgs=await r.json(),unused=imgs.filter(i=>!i.in_use).length;
+    $('img-meta').textContent=`${imgs.length} Images · ${unused} ungenutzt`;
+    if(!imgs.length){$('img-grid').innerHTML='<div class="empty-state">Keine Images gefunden</div>';return}
+    $('img-grid').innerHTML=imgs.map(i=>{
+      const tag=i.tags.length?esc(i.tags.join(', ')):'<span class="icard-tag-none">&lt;none&gt;</span>';
+      const badge=i.in_use?'<span class="badge ok">In Verwendung</span>':'<span class="badge mute">Ungenutzt</span>';
+      const del=i.in_use?'':`<button class="ibtn bad" aria-label="Löschen" onclick="deleteImage('${esc(i.id)}','${esc(i.tags[0]||i.short_id)}')">${ico('trash')}</button>`;
+      return `<div class="icard"><div class="icard-tags" title="${tag}">${tag}</div><div class="icard-id">${esc(i.short_id)}</div>
+        <div class="icard-meta"><span>${fmtBytes(i.size)}</span><span>vor ${fmtAgo(i.created)}</span></div>
+        <div class="icard-footer">${badge}${del}</div></div>`;
+    }).join('');
+  }catch(e){}
+}
+async function deleteImage(id,label){
+  if(!confirm(`Image "${label}" löschen?`))return;
+  try{const r=await fetch(imageUrl('/'+encodeURIComponent(id)),{method:'DELETE'});const j=await r.json().catch(()=>({}));
+    r.ok?toast('Image gelöscht'):toast('Fehler: '+(j.detail||r.status),true);}catch(e){toast('Fehler: '+e,true)}
+  loadImages();
+}
+async function pruneImages(){
+  if(!confirm('Alle ungenutzten Images löschen?'))return;
+  try{const r=await fetch(imageUrl('/prune'),{method:'POST'});const j=await r.json().catch(()=>({}));
+    r.ok?toast(`${j.deleted} Images entfernt, ${fmtBytes(j.freed)} freigegeben`):toast('Fehler: '+(j.detail||r.status),true);}catch(e){toast('Fehler: '+e,true)}
+  loadImages();
+}
+
+/* ── Server & Agents ─────────────────────────────── */
+let _servers=[],_aguId='';
+async function loadServers(){
+  try{const r=await fetch('/api/servers');if(r.status===401){location.href='/login';return}
+    _servers=(r.ok?await r.json():[]).filter(s=>s.type==='agent');renderServers();}catch(e){}
+}
+function renderServers(){
+  const grid=$('srv-grid');
+  if(!_servers.length){grid.innerHTML='<div class="empty-state">Noch keine Agents. Lade einen Agent ein, um weitere Server zu verwalten.</div>';return}
+  grid.innerHTML=_servers.map(s=>{
+    const id=esc(s.id),n=esc(s.name),host=s.url?esc(s.url):'noch nicht verbunden';
+    return `<div class="srvcard">
+      <div class="srvcard-top">${ico('plug')}<span class="srvcard-name">${n}</span><span class="badge acc">Agent</span></div>
+      <div class="srvcard-host">${host}</div>
+      <div class="srvcard-status checking" id="srv-status-${id}">Prüfe…</div>
+      <div class="srvcard-actions">
+        <button class="btn sm" onclick="testServer('${id}')">${ico('restart')}Testen</button>
+        <span style="flex:1"></span>
+        <button class="ibtn bad" aria-label="Entfernen" onclick="deleteServer('${id}')">${ico('trash')}</button>
+      </div>
+    </div>`;
+  }).join('');
+  _servers.forEach(s=>testServer(s.id,true));
+}
+async function testServer(id,silent,prefix='srv-status-'){
+  const el=$(prefix+id);
+  if(el){el.className='srvcard-status checking';el.textContent='Prüfe…';}
+  try{
+    const r=await fetch('/api/servers/'+id+'/test',{method:'POST'});
+    if(el){el.className='srvcard-status '+(r.ok?'online':'offline');el.textContent=r.ok?'Online':'Offline';}
+    if(!silent){if(r.ok)toast('Verbindung OK');else{const j=await r.json().catch(()=>({}));toast('Verbindung fehlgeschlagen: '+(j.detail||r.status),true);
+      if(isAdmin()&&/host key geändert/i.test(j.detail||'')&&confirm('Der Host-Schlüssel des Servers hat sich geändert.\nNur bestätigen, wenn der Server bewusst neu aufgesetzt wurde. Neuen Schlüssel vertrauen?')){
+        await fetch('/api/servers/'+id+'/known-host',{method:'DELETE'});testServer(id,false,prefix);}}}
+  }catch(e){if(el){el.className='srvcard-status offline';el.textContent='Offline';}}
+}
+const srvName=id=>(_servers.find(s=>s.id===id)||{}).name||id;
+async function deleteServer(id){
+  const name=srvName(id);
+  if(!confirm(`Server "${name}" entfernen?`))return;
+  const r=await fetch('/api/servers/'+id,{method:'DELETE'});
+  r.ok?toast('Server entfernt'):toast('Fehler',true);
+  loadServers();loadAgentServers();
+}
+async function openAddServerModal(){
+  $('srv-done-btn').style.display='none';$('srv-add-err').textContent='';
+  $('srv-agent-name').value='';$('srv-agent-token-box').style.display='none';
+  $('srv-agent-token-loading').style.display='';$('srv-agent-token-loading').textContent='Token wird erzeugt…';
+  $('add-server-modal').style.display='';
+  try{
+    const r=await fetch('/api/servers/agent-invite',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Neuer Agent'})});
+    if(r.ok){
+      const j=await r.json();
+      $('srv-agent-token-val').textContent=j.token;$('srv-agent-token-box').style.display='';
+      $('srv-agent-token-loading').style.display='none';$('srv-done-btn').style.display='';
+      $('srv-agent-name').oninput=function(){
+        if(j.id)fetch('/api/servers/'+j.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:this.value||'Agent'})}).catch(()=>{});
+      };
+      loadServers();
+    }else{$('srv-agent-token-loading').textContent='Fehler beim Erzeugen';$('srv-done-btn').style.display='';}
+  }catch(e){$('srv-agent-token-loading').textContent='Netzwerkfehler';$('srv-done-btn').style.display='';}
+}
+function closeAddServerModal(){$('add-server-modal').style.display='none';loadServers();loadAgentServers();}
+/* ── SSH-Zugriff ─────────────────────────────────── */
+let _sshServers=[],_sshEditId=null;
+async function loadSshServers(){
+  try{const r=await fetch('/api/servers');if(r.status===401){location.href='/login';return}
+    _sshServers=(r.ok?await r.json():[]).filter(s=>s.type!=='agent');renderSshServers();}catch(e){}
+}
+const sshAuthLabel=s=>s.auth_type==='password'?'Passwort':s.has_cert?'Zertifikat':'Schlüssel';
+function renderSshServers(){
+  const grid=$('ssh-grid');
+  if(!_sshServers.length){grid.innerHTML=`<div class="empty-state">${isAdmin()?'Noch keine SSH-Server hinterlegt.':'Für dich ist kein SSH-Server freigegeben.'}</div>`;return}
+  grid.innerHTML=_sshServers.map(s=>{
+    const id=esc(s.id);
+    return `<div class="srvcard">
+      <div class="srvcard-top">${ico('server')}<span class="srvcard-name">${esc(s.name)}</span><span class="badge mute">${sshAuthLabel(s)}</span></div>
+      <div class="srvcard-host">${esc(s.username||'')}@${esc(s.host||'')}:${s.port||22}</div>
+      <div class="srvcard-status checking" id="ssh-status-${id}">Prüfe…</div>
+      <div class="srvcard-actions">
+        <button class="btn sm primary" onclick="openConsole('${id}')">${ico('term')}Konsole</button>
+        <button class="btn sm" onclick="testServer('${id}',false,'ssh-status-')">${ico('restart')}Testen</button>
+        <button class="btn sm admin-only" onclick="openSshModal('${id}')">${ico('edit')}Bearbeiten</button>
+        <span style="flex:1"></span>
+        <button class="ibtn bad admin-only" aria-label="Entfernen" onclick="deleteSsh('${id}')">${ico('trash')}</button>
+      </div>
+    </div>`;
+  }).join('');
+  _sshServers.forEach(s=>testServer(s.id,true,'ssh-status-'));
+}
+async function deleteSsh(id){
+  const s=_sshServers.find(x=>x.id===id);
+  if(!confirm(`SSH-Server "${s?s.name:id}" entfernen?`))return;
+  const r=await fetch('/api/servers/'+id,{method:'DELETE'});
+  r.ok?toast('SSH-Server entfernt'):toast('Fehler',true);
+  if(_conId===id)closeConsole();
+  loadSshServers();
+}
+function openSshModal(id){
+  _sshEditId=id||null;const s=id?_sshServers.find(x=>x.id===id):null;
+  $('ssh-modal-title').textContent=s?'SSH-Server bearbeiten':'SSH-Server hinzufügen';
+  $('ssh-name').value=s?s.name:'';$('ssh-host').value=s?s.host||'':'';
+  $('ssh-port').value=s?s.port||22:22;$('ssh-user').value=s?s.username||'':'';
+  ['ssh-key','ssh-pass','ssh-cert','ssh-password'].forEach(i=>$(i).value='');
+  $('ssh-auth').value=s&&s.auth_type==='password'?'password':'key';onSshAuthChange();
+  $('ssh-cert-del-row').style.display=s&&s.has_cert?'':'none';$('ssh-cert-del').checked=false;
+  $('ssh-edit-hint').style.display=s?'':'none';$('ssh-err').textContent='';
+  $('ssh-modal').style.display='';$('ssh-name').focus();
+}
+function closeSshModal(){$('ssh-modal').style.display='none'}
+function onSshAuthChange(){const k=$('ssh-auth').value==='key';$('ssh-key-fields').style.display=k?'':'none';$('ssh-pw-fields').style.display=k?'none':'';}
+async function saveSsh(){
+  const v=i=>$(i).value.trim(),err=$('ssh-err'),editId=_sshEditId;
+  const body={type:'ssh',name:v('ssh-name'),host:v('ssh-host'),port:parseInt(v('ssh-port'))||22,username:v('ssh-user'),auth_type:$('ssh-auth').value};
+  if(!body.name||!body.host||!body.username){err.textContent='Name, Host und Benutzer sind erforderlich';return}
+  if(body.auth_type==='key'){
+    body.ssh_key=v('ssh-key');body.passphrase=$('ssh-pass').value;
+    if(v('ssh-cert'))body.ssh_cert=v('ssh-cert');else if($('ssh-cert-del').checked)body.ssh_cert='';
+    if(!editId&&!body.ssh_key){err.textContent='Privater Schlüssel ist erforderlich';return}
+  }else{
+    body.password=$('ssh-password').value;
+    if(!editId&&!body.password){err.textContent='Passwort ist erforderlich';return}
+  }
+  err.textContent='';
+  try{
+    const r=await fetch(editId?'/api/servers/'+editId:'/api/servers',{method:editId?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok){err.textContent=j.detail||'Fehler beim Speichern';return}
+  }catch(e){err.textContent='Netzwerkfehler';return}
+  closeSshModal();toast(editId?'SSH-Server gespeichert':`SSH-Server "${body.name}" hinzugefügt`);
+  loadSshServers();
+}
+
+/* Konsole */
+let _term=null,_ws=null,_fitAddon=null,_xtermLoaded=false,_conId=null;
+function _loadXterm(cb){
+  if(_xtermLoaded){cb();return}
+  const css=document.createElement('link');css.rel='stylesheet';css.href='/static/js/xterm.css';document.head.appendChild(css);
+  const loadScript=(src,next)=>{const s=document.createElement('script');s.src=src;s.onload=next;
+    s.onerror=()=>toast('Konsole: '+src+' konnte nicht geladen werden',true);document.head.appendChild(s);};
+  loadScript('/static/js/xterm.js',()=>loadScript('/static/js/xterm-addon-fit.js',()=>{_xtermLoaded=true;cb()}));
+}
+const xtermOptions=()=>({cursorBlink:true,fontSize:14,fontFamily:'"JetBrains Mono","Cascadia Code","Fira Mono",Consolas,monospace',
+  theme:{background:'#0b0d17',foreground:'#e7e9f3',cursor:'#8f88e6',selectionBackground:'#353d5c',
+    black:'#0b0d17',red:'#ec6b6a',green:'#46c486',yellow:'#e3aa45',blue:'#7aa2f7',magenta:'#b39df3',cyan:'#5ccfd6',white:'#c3c7d9',
+    brightBlack:'#6c7391',brightRed:'#ff8e8d',brightGreen:'#6fe0a5',brightYellow:'#f5c56c',brightBlue:'#9ab8ff',
+    brightMagenta:'#cdbcff',brightCyan:'#86e1e6',brightWhite:'#f3f4fa'},allowProposedApi:true});
+function _dropSocket(){if(_ws){_ws.onclose=null;_ws.close();_ws=null;}}
+function openConsole(id){
+  const s=_sshServers.find(x=>x.id===id);
+  if(_conId!==id){_dropSocket();if(_term)_term.reset();}
+  _conId=id;
+  $('konsole-name').textContent=s?`${s.name} · ${s.username}@${s.host}:${s.port||22}`:id;
+  $('ssh-list-pane').style.display='none';$('ssh-console').style.display='';
+  document.body.classList.add('full-view');
+  _loadXterm(()=>{
+    if(_conId!==id)return;
+    if(!_term){
+      _term=new Terminal(xtermOptions());
+      _fitAddon=new FitAddon.FitAddon();_term.loadAddon(_fitAddon);_term.open($('console-term'));
+      window.addEventListener('resize',()=>{if(_fitAddon&&_conId&&activeTab==='ssh')_fitAddon.fit()});
+      _term.onResize(({cols,rows})=>{if(_ws&&_ws.readyState===WebSocket.OPEN)_ws.send(JSON.stringify({type:'resize',cols,rows}))});
+      _term.onData(data=>{if(_ws&&_ws.readyState===WebSocket.OPEN)_ws.send(data)});
+    }
+    _fitAddon.fit();_term.focus();
+    connectConsole();
+  });
+}
+function closeConsole(){
+  _dropSocket();_conId=null;if(_term)_term.reset();
+  $('ssh-console').style.display='none';$('ssh-list-pane').style.display='';
+  document.body.classList.remove('full-view');
+}
+function setConsoleStatus(t,color){const s=$('konsole-status');s.textContent='● '+t;s.style.color=color}
+function connectConsole(){
+  if(!_conId||(_ws&&(_ws.readyState===WebSocket.OPEN||_ws.readyState===WebSocket.CONNECTING)))return;
+  const proto=location.protocol==='https:'?'wss':'ws',ws=new WebSocket(`${proto}://${location.host}/ws/ssh/${encodeURIComponent(_conId)}`);
+  _ws=ws;ws.binaryType='arraybuffer';
+  setConsoleStatus('Verbinde…','var(--warning)');$('konsole-reconnect').style.display='none';
+  ws.onopen=()=>{setConsoleStatus('Verbunden','var(--success)');
+    if(_term&&_fitAddon){_fitAddon.fit();const{cols,rows}=_term;ws.send(JSON.stringify({type:'resize',cols,rows}));}};
+  ws.onmessage=e=>{if(_term)_term.write(e.data instanceof ArrayBuffer?new Uint8Array(e.data):e.data)};
+  ws.onclose=e=>{if(_ws===ws)_ws=null;setConsoleStatus('Getrennt','var(--danger)');$('konsole-reconnect').style.display='';
+    if(_term)_term.write(`\r\n\x1b[31m[Verbindung getrennt${e.reason?': '+e.reason:''}]\x1b[0m\r\n`);};
+  ws.onerror=()=>setConsoleStatus('Fehler','var(--danger)');
+}
+
+/* ── Registry-Zertifikate ────────────────────────── */
+const fmtDate=t=>new Date(t*1000).toLocaleDateString('de-DE');
+function certExpiry(c){
+  const days=Math.floor((c.not_after*1000-Date.now())/86400000);
+  if(days<0)return `<span class="chip-st crit">abgelaufen</span>`;
+  if(days<30)return `<span class="chip-st warn">läuft in ${days} T ab</span>`;
+  return `<span>gültig bis ${fmtDate(c.not_after)}</span>`;
+}
+async function refreshCertList(){
+  try{
+    const r=await fetch('/api/registry-certs');const j=r.ok?await r.json():{certs:[]};
+    if(j.dir)$('cert-dir').textContent=j.dir;
+    const list=j.certs||[];$('cert-count').textContent=list.length;
+    $('cert-list').innerHTML=list.length?list.map(e=>{
+      const ca=(e.ca||[])[0];
+      const desc=(e.error?`<span class="chip-st crit">${esc(e.error)}</span>`:'')
+        +(ca?`<span title="SHA-256 ${esc(ca.fingerprint)}">CA: ${esc(ca.subject||'–')}${(e.ca.length>1)?` +${e.ca.length-1}`:''}</span>${certExpiry(ca)}`:'')
+        +(e.client?`<span class="badge mute" title="${esc(e.client.subject)}">Client-Zertifikat</span>${ca?'':certExpiry(e.client)}`:'');
+      return entryRow(e.registry,desc,'deleteCert',e.registry);
+    }).join(''):tileEmpty('Keine Zertifikate hinterlegt.');
+  }catch(e){}
+}
+async function fetchCert(){
+  const reg=$('cert-reg').value.trim(),err=$('cert-err'),box=$('cert-fetched'),b=$('cert-fetch-btn');
+  if(!reg){err.textContent='Registry-Adresse erforderlich.';return}
+  err.textContent='';b.disabled=true;box.innerHTML='<div class="fetch-box hint">Rufe Zertifikat ab …</div>';
+  try{
+    const r=await fetch('/api/registry-certs/fetch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({registry:reg})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok){box.innerHTML='';err.textContent=j.detail||'Abruf fehlgeschlagen';return}
+    const top=j.chain[j.chain.length-1];
+    $('cert-ca').value=j.pem.trim();
+    box.innerHTML=`<div class="fetch-box">
+      <div><b>${esc(top.subject||'–')}</b> <span class="hint">ausgestellt von ${esc(top.issuer||'–')}${top.self_signed?' · selbst signiert':''}</span></div>
+      <div>${certExpiry(top)} <span class="hint">· Kette mit ${j.chain.length} Zertifikat${j.chain.length===1?'':'en'}</span></div>
+      <div class="fp">SHA-256 ${esc(top.fingerprint)}</div>
+      <div class="hint">${j.trusted?'Dieser Server wird bereits vertraut – ein Eintrag ist nicht nötig.':'Fingerabdruck vor dem Speichern mit dem Zertifikat auf dem Server vergleichen.'}</div></div>`;
+  }catch(e){box.innerHTML='';err.textContent='Netzwerkfehler'}
+  finally{b.disabled=false}
+}
+function loadCertFiles(inp){
+  [...inp.files].forEach(f=>{const rd=new FileReader();rd.onload=()=>{
+    const t=String(rd.result).trim();
+    if(/PRIVATE KEY/.test(t)){$('cert-ck').value=t;$('cert-ck').closest('details').open=true}
+    else if(/client/i.test(f.name)){$('cert-cc').value=t;$('cert-cc').closest('details').open=true}
+    else $('cert-ca').value=t;
+  };rd.readAsText(f)});
+  inp.value='';
+}
+async function saveCert(){
+  const err=$('cert-err'),reg=$('cert-reg').value.trim();
+  const body={registry:reg,ca:$('cert-ca').value,client_cert:$('cert-cc').value,client_key:$('cert-ck').value};
+  if(!reg){err.textContent='Registry-Adresse erforderlich.';return}
+  if(!body.ca.trim()&&!body.client_cert.trim()){err.textContent='CA- oder Client-Zertifikat erforderlich.';return}
+  err.textContent='';
+  try{
+    const r=await fetch('/api/registry-certs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok){err.textContent=j.detail||'Fehler beim Speichern';return}
+  }catch(e){err.textContent='Netzwerkfehler';return}
+  ['cert-reg','cert-ca','cert-cc','cert-ck'].forEach(i=>$(i).value='');$('cert-fetched').innerHTML='';
+  toast(`Zertifikat für ${reg} gespeichert`);refreshCertList();
+}
+async function deleteCert(reg){
+  if(!confirm(`Zertifikate für "${reg}" entfernen?`))return;
+  const r=await fetch('/api/registry-certs/'+encodeURIComponent(reg),{method:'DELETE'});
+  r.ok?(toast('Zertifikate entfernt'),refreshCertList()):toast('Fehler beim Entfernen',true);
+}
+
+/* ── Updates (Einstellungen) ─────────────────────── */
+function renderRelease(j){
+  const rel=j.release||{};
+  $('rel-cur').textContent=fmtVersion(j.version);
+  $('rel-latest').textContent=rel.latest?fmtVersion(rel.latest):'–';
+  $('rel-image').textContent=rel.image||'–';
+  $('rel-checked').textContent=rel.checked_at?new Date(rel.checked_at*1000).toLocaleString():'noch nicht geprüft';
+  const st=$('rel-status');
+  if(rel.checking)st.innerHTML='<span class="chip-st warn">Prüft …</span>';
+  else if(rel.error)st.innerHTML=`<span class="chip-st crit">Fehler</span><div class="hint" style="margin-top:4px;text-align:right">${esc(rel.error)}</div>`;
+  else if(rel.update_available)st.innerHTML=`<span class="chip-st warn">Update auf ${esc(fmtVersion(rel.latest))} verfügbar</span>`;
+  else if(rel.checked_at)st.innerHTML='<span class="chip-st ok">Aktuell</span>';
+  else st.textContent='–';
+  $('rel-howto').style.display=rel.update_available?'':'none';
+  renderVersion(j.version,rel);
+}
+async function loadRelease(){try{const r=await fetch('/api/release');if(r.ok)renderRelease(await r.json())}catch(e){}}
+async function checkRelease(){
+  const b=$('rel-check-btn');b.disabled=true;$('rel-status').innerHTML='<span class="chip-st warn">Prüft …</span>';
+  try{const r=await fetch('/api/release/check',{method:'POST'});const j=await r.json().catch(()=>({}));
+    if(r.ok){renderRelease(j);const rel=j.release||{};
+      toast(rel.error?'Prüfung fehlgeschlagen':rel.update_available?`Update auf ${fmtVersion(rel.latest)} verfügbar`:'DockPilot ist aktuell',!!rel.error);}
+    else toast('Fehler: '+(j.detail||r.status),true);
+  }catch(e){toast('Netzwerkfehler',true)}
+  b.disabled=false;
+}
+
+/* ── Container-Konsole ───────────────────────────── */
+let _cterm=null,_cfit=null,_cws=null,_ctarget=null;
+function openContainerConsole(id,name){
+  if(_cws){_cws.onclose=null;_cws.close();_cws=null;}
+  const srv=activeServer,srvName=srv?((agentServerList.find(s=>s.id===srv)||{}).name||'Agent'):'Lokal';
+  _ctarget={id,server:srv};
+  $('cterm-name').textContent=`${name} · ${srvName}`;$('cterm-modal').style.display='';
+  _loadXterm(()=>{
+    if(!_ctarget||_ctarget.id!==id)return;
+    if(!_cterm){
+      _cterm=new Terminal(xtermOptions());_cfit=new FitAddon.FitAddon();_cterm.loadAddon(_cfit);_cterm.open($('cterm'));
+      window.addEventListener('resize',()=>{if(_ctarget)_cfit.fit()});
+      _cterm.onResize(({cols,rows})=>{if(_cws&&_cws.readyState===WebSocket.OPEN)_cws.send(JSON.stringify({type:'resize',cols,rows}))});
+      _cterm.onData(d=>{if(_cws&&_cws.readyState===WebSocket.OPEN)_cws.send(d)});
+    }else _cterm.reset();
+    _cfit.fit();_cterm.focus();connectContainerConsole();
+  });
+}
+function setCtermStatus(t,color){const s=$('cterm-status');s.textContent='● '+t;s.style.color=color}
+function connectContainerConsole(){
+  if(!_ctarget||(_cws&&(_cws.readyState===WebSocket.OPEN||_cws.readyState===WebSocket.CONNECTING)))return;
+  const t=_ctarget,proto=location.protocol==='https:'?'wss':'ws',cid=encodeURIComponent(t.id);
+  const path=t.server?`/ws/servers/${encodeURIComponent(t.server)}/container/${cid}`:`/ws/container/${cid}`;
+  const ws=new WebSocket(`${proto}://${location.host}${path}`);_cws=ws;ws.binaryType='arraybuffer';
+  setCtermStatus('Verbinde…','var(--warning)');$('cterm-reconnect').style.display='none';
+  ws.onopen=()=>{setCtermStatus('Verbunden','var(--success)');
+    if(_cterm&&_cfit){_cfit.fit();const{cols,rows}=_cterm;ws.send(JSON.stringify({type:'resize',cols,rows}));_cterm.focus();}};
+  ws.onmessage=e=>{if(_cterm)_cterm.write(e.data instanceof ArrayBuffer?new Uint8Array(e.data):e.data)};
+  ws.onclose=e=>{if(_cws===ws)_cws=null;setCtermStatus('Getrennt','var(--danger)');$('cterm-reconnect').style.display='';
+    if(_cterm)_cterm.write(`\r\n\x1b[31m[Verbindung getrennt${e.reason?': '+e.reason:''}]\x1b[0m\r\n`);};
+  ws.onerror=()=>setCtermStatus('Fehler','var(--danger)');
+}
+function closeContainerConsole(){
+  if(_cws){_cws.onclose=null;_cws.close();_cws=null;}
+  _ctarget=null;$('cterm-modal').style.display='none';
+}
+
+/* ── Start ───────────────────────────────────────── */
+let _hostTimer=setInterval(loadHost,5000);
+async function boot(){
+  await Promise.allSettled([loadMe(),loadAgentServers()]);
+  // Ohne Zugriff auf den lokalen Server direkt auf den ersten freigegebenen Agent wechseln.
+  if(!canServer('local')&&agentServerList.length){
+    $('header-server-sel').value=agentServerList[0].id;
+    await Promise.allSettled([switchServer(agentServerList[0].id),switchTab(location.hash.slice(1)||'containers')]);
+    return;
+  }
+  await Promise.allSettled([load(),loadHost(),loadSizes(),switchTab(location.hash.slice(1)||'containers')]);
+}
+trackLoading([boot()]);
+setInterval(load,5000);setInterval(loadSizes,30000);setInterval(loadAgentServers,30000);
+// Ergebnis der Update-Prüfung (läuft im Backend alle 6 h) regelmäßig nachladen.
+setInterval(async()=>{try{const r=await fetch('/api/version');if(r.ok){const j=await r.json();
+  renderVersion(j.version,Object.assign({},j.release,{error:(me.release||{}).error}));}}catch(e){}},30*60*1000);
+document.addEventListener('keydown',e=>{if(e.key!=='Escape'||e.target.closest('.xterm'))return;
+  if(!$('user-menu').hidden){closeUserMenu();$('me-btn').focus();return}
+  document.querySelectorAll('.modal-backdrop:not(#cterm-modal)').forEach(m=>m.style.display='none')});
+</script></body></html>
