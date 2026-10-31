@@ -21,11 +21,12 @@ func main() {
 	}
 
 	// ── Mode-dependent behaviour ─────────────────────────────────────
-	m := config.LoadMode()
-	if m.Mode == "agent" {
-		servers.StartAgentRegistrationLoop()
-	}
+	servers.StartAgentRegistrationLoop() // tut nur im Agent-Modus etwas
 	release.Start(time.Hour)
+
+	if config.NeedsSetup() {
+		log.Printf("Ersteinrichtung: Setup-Code %s (im Browser unter /setup eingeben)", config.SetupToken())
+	}
 
 	// ── HTTP server ──────────────────────────────────────────────────
 	addr := os.Getenv("LISTEN_ADDR")

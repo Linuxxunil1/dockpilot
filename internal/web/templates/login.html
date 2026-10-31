@@ -26,8 +26,8 @@ button:active{transform:scale(.98)}
 <body><div class="wrap">
 <div class="logo"><img src="/static/logo.svg" alt="" width="34" height="34" style="vertical-align:middle;margin-right:10px">DockPilot</div>
 <form class="card" method="post" action="/login">
-<label>Benutzer</label><input name="username" autofocus autocomplete="username">
-<label>Passwort</label><input name="password" type="password" autocomplete="current-password">
+<label for="username">Benutzer</label><input id="username" name="username" autofocus autocomplete="username">
+<label for="password">Passwort</label><input id="password" name="password" type="password" autocomplete="current-password">
 <button type="submit">Anmelden</button>
-<div class="err">{{ERROR}}</div>
+<div class="err" role="alert">{{ERROR}}</div>
 </form></div></body></html>

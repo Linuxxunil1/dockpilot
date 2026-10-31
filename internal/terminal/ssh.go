@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sync"
 
 	"github.com/gorilla/websocket"
 	gossh "golang.org/x/crypto/ssh"
@@ -20,11 +21,12 @@ func ServeSSH(w http.ResponseWriter, r *http.Request, serverID string) {
 		return
 	}
 
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := upgrade(w, r)
 	if err != nil {
 		log.Printf("terminal/ssh: upgrade: %v", err)
 		return
 	}
+	defer conn.Close()
 
 	client, err := servers.Connect(srv)
 	if err != nil {
@@ -60,7 +62,9 @@ func ServeSSH(w http.ResponseWriter, r *http.Request, serverID string) {
 	}
 
 	// stdout+stderr → WebSocket
+	var pumps sync.WaitGroup
 	pump := func(rd io.Reader) {
+		defer pumps.Done()
 		buf := make([]byte, 4096)
 		for {
 			n, err := rd.Read(buf)
@@ -72,24 +76,44 @@ func ServeSSH(w http.ResponseWriter, r *http.Request, serverID string) {
 			}
 		}
 	}
+	pumps.Add(2)
 	go pump(stdout)
 	go pump(stderr)
 
+	// Shell beendet (z. B. "exit"): restliche Ausgabe senden, dann die Verbindung schließen.
+	shellDone := make(chan struct{})
+	go func() {
+		session.Wait()
+		pumps.Wait()
+		close(shellDone)
+	}()
+
 	// WebSocket → SSH stdin / resize
-	for {
-		m, err := readMsg(conn)
-		if err != nil {
-			break
-		}
-		switch m.Type {
-		case "data":
-			io.WriteString(stdin, m.Data)
-		case "resize":
-			if m.Cols > 0 && m.Rows > 0 {
-				session.WindowChange(int(m.Rows), int(m.Cols))
+	browserGone := make(chan struct{})
+	go func() {
+		defer close(browserGone)
+		for {
+			m, err := readMsg(conn)
+			if err != nil {
+				return
+			}
+			switch m.Type {
+			case "data":
+				io.WriteString(stdin, m.Data)
+			case "resize":
+				if m.Cols > 0 && m.Rows > 0 {
+					session.WindowChange(int(m.Rows), int(m.Cols))
+				}
 			}
 		}
+	}()
+
+	reason := ""
+	select {
+	case <-shellDone:
+		reason = "Shell beendet"
+	case <-browserGone:
 	}
 	conn.WriteMessage(websocket.CloseMessage,
-		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, reason))
 }

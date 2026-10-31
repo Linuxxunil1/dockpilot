@@ -34,10 +34,10 @@ var Permissions = []Permission{
 	{PermContainersView, "Container", "Container und Host-Auslastung ansehen"},
 	{PermContainersControl, "Container", "Container starten, stoppen, neu starten"},
 	{PermContainersUpdate, "Container", "Container-Image aktualisieren"},
-	{PermContainersExec, "Container", "Konsole im Container öffnen (volle Shell)"},
+	{PermContainersExec, "Container", "Konsole im Container öffnen (volle Shell – kommt Root auf dem Host gleich)"},
 	{PermStacksView, "Stacks", "Stacks, Compose-Dateien und Logs ansehen"},
 	{PermStacksControl, "Stacks", "Stacks deployen und herunterfahren"},
-	{PermStacksEdit, "Stacks", "Stacks anlegen, bearbeiten, importieren, pullen, löschen"},
+	{PermStacksEdit, "Stacks", "Stacks anlegen, bearbeiten, importieren, pullen, löschen (mit Deployen: Root auf dem Host)"},
 	{PermImagesManage, "System", "Images ansehen, löschen und aufräumen"},
 	{PermSSHConsole, "System", "SSH-Konsole auf freigegebenen SSH-Servern"},
 }
@@ -70,8 +70,16 @@ func loadGroups() []Group {
 	data, err := os.ReadFile(config.GroupsFile)
 	if err == nil {
 		var list []Group
-		json.Unmarshal(data, &list)
+		if json.Unmarshal(data, &list) != nil {
+			groupsCorrupt = true
+			return nil
+		}
+		groupsCorrupt = false
 		return list
+	}
+	if !os.IsNotExist(err) {
+		groupsCorrupt = true
+		return nil
 	}
 	list := []Group{{
 		ID:          DefaultGroupID,
@@ -83,10 +91,15 @@ func loadGroups() []Group {
 	return list
 }
 
+// groupsCorrupt verhindert, dass eine unlesbare groups.json beim Speichern überschrieben wird.
+var groupsCorrupt bool
+
 func saveGroups(list []Group) error {
-	os.MkdirAll(config.DataDir, 0700)
+	if groupsCorrupt {
+		return errors.New("Gruppendatei unlesbar – bitte groups.json prüfen")
+	}
 	data, _ := json.MarshalIndent(list, "", "  ")
-	return os.WriteFile(config.GroupsFile, data, 0600)
+	return config.WriteFileAtomic(config.GroupsFile, data, 0600)
 }
 
 func validPerms(perms []string) bool {
@@ -184,7 +197,10 @@ func DeleteGroup(id string) error {
 	if err := saveGroups(out); err != nil {
 		return err
 	}
-	ul := load()
+	ul, err := load()
+	if err != nil {
+		return err
+	}
 	for i := range ul {
 		ul[i].Groups = without(ul[i].Groups, id)
 	}

@@ -17,13 +17,19 @@ var shellCmd = []string{"/bin/sh", "-c", "if command -v bash >/dev/null 2>&1; th
 
 // ServeContainer öffnet per WebSocket eine interaktive Shell (docker exec) im Container.
 func ServeContainer(w http.ResponseWriter, r *http.Request, containerID string) {
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := upgrade(w, r)
 	if err != nil {
 		log.Printf("terminal/container: upgrade: %v", err)
 		return
 	}
+	defer conn.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	if docker.IsSelf(ctx, containerID) {
+		closeConn(conn, docker.ErrSelf.Error())
+		return
+	}
 
 	exec, err := docker.CLI.ContainerExecCreate(ctx, containerID, container.ExecOptions{
 		Tty:          true,
@@ -85,5 +91,4 @@ func ServeContainer(w http.ResponseWriter, r *http.Request, containerID string) 
 	<-ctx.Done()
 	conn.WriteMessage(websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Shell beendet"))
-	conn.Close()
 }

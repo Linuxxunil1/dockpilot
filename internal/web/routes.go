@@ -76,6 +76,7 @@ func registerRoutes(r *mux.Router) {
 	r.HandleFunc("/api/servers/{id}", handleServerUpdate).Methods("PUT")
 	r.HandleFunc("/api/servers/{id}", handleServerPatch).Methods("PATCH")
 	r.HandleFunc("/api/servers/{id}", handleServerDelete).Methods("DELETE")
+	r.HandleFunc("/api/servers/host-key", handleServerHostKey).Methods("POST")
 	r.HandleFunc("/api/servers/{id}/test", handleServerTest).Methods("POST")
 	r.HandleFunc("/api/servers/{id}/known-host", handleServerResetKnownHost).Methods("DELETE")
 
@@ -85,6 +86,7 @@ func registerRoutes(r *mux.Router) {
 	r.HandleFunc("/api/servers/{id}/host", handleServerHost).Methods("GET")
 	r.HandleFunc("/api/servers/{id}/version", handleServerVersion).Methods("GET")
 	r.HandleFunc("/api/servers/{id}/stacks", handleServerStacks).Methods("GET")
+	r.HandleFunc("/api/servers/{id}/stacks/import", handleServerStackImport).Methods("POST")
 	r.HandleFunc("/api/servers/{id}/stacks/{name}/file", handleServerStackFileGet).Methods("GET")
 	r.HandleFunc("/api/servers/{id}/stacks/{name}/file", handleServerStackFilePut).Methods("PUT")
 	r.HandleFunc("/api/servers/{id}/stacks/{name}/{action}", handleServerStackAction).Methods("POST")

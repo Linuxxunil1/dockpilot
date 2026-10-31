@@ -12,7 +12,8 @@
   --success:#46c486;--success-bg:rgba(70,196,134,.13);
   --warning:#e3aa45;--warning-bg:rgba(227,170,69,.13);
   --danger:#ec6b6a;--danger-bg:rgba(236,107,106,.13);
-  --code-bg:#090b13;--shadow:0 12px 40px rgba(0,0,0,.45);
+  --code-bg:#090b13;--shadow:0 12px 40px rgba(0,0,0,.45);--shadow-sm:0 1px 2px rgba(0,0,0,.15);
+  --scrim:rgba(5,6,12,.55);--term-bg:#0b0d17;
   --radius:8px;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
   --mono:'JetBrains Mono','Fira Code',ui-monospace,'Cascadia Code',monospace;
   --viz-1:#3987e5;--viz-2:#d95926;--viz-3:#199e70;--viz-4:#c98500;
@@ -25,7 +26,8 @@
   --text:#191b29;--text-2:#4a4f67;--muted:#7d839b;
   --accent:#534ab7;--accent-strong:#453c9e;--accent-bg:#eeedfe;
   --success:#1f8a56;--success-bg:#e3f5ec;--warning:#9a6408;--warning-bg:#fbf0dc;
-  --danger:#c23b3a;--danger-bg:#fcebeb;--code-bg:#f7f7fb;--shadow:0 12px 40px rgba(20,22,40,.12);
+  --danger:#c23b3a;--danger-bg:#fcebeb;--code-bg:#f7f7fb;--shadow:0 12px 40px rgba(20,22,40,.12);--shadow-sm:0 1px 2px rgba(20,22,40,.12);
+  --scrim:rgba(20,22,40,.35);--term-bg:#0b0d17;
   color-scheme:light;
 }
 *{box-sizing:border-box}
@@ -114,7 +116,7 @@ code{font-family:var(--mono);font-size:12px;background:var(--surface-2);padding:
 .search input{padding-left:32px}
 .chips{display:flex;gap:4px;background:var(--surface-2);padding:3px;border-radius:var(--radius)}
 .chip{border:0;background:none;color:var(--text-2);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:13px}
-.chip.on{background:var(--surface);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.chip.on{background:var(--surface);color:var(--text);box-shadow:var(--shadow-sm)}
 .panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
 .panel+.panel{margin-top:14px}
 .panel h2{font-size:15px;font-weight:600;margin:0 0 4px}
@@ -173,6 +175,7 @@ code{font-family:var(--mono);font-size:12px;background:var(--surface-2);padding:
 .group-section{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
 .group-section.stack-dragging{opacity:.4}
 .group-section.stack-drag-over{border-color:var(--accent)}
+.group-hdr:focus-visible,.scard-name:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .group-hdr{display:flex;align-items:center;gap:9px;padding:9px 14px;background:var(--surface-2);cursor:pointer;user-select:none;font-weight:500}
 .group-hdr .chev{color:var(--muted);transition:transform .15s}
 .group-section.collapsed .chev{transform:rotate(-90deg)}
@@ -207,7 +210,7 @@ code{font-family:var(--mono);font-size:12px;background:var(--surface-2);padding:
 .scard{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 15px;cursor:pointer;display:flex;flex-direction:column;gap:8px}
 .scard:hover{border-color:var(--border-strong)}
 .scard.active{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
-.scard-name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scard-name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border:0;background:none;padding:0;text-align:left;cursor:pointer}
 .scard-meta{font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:7px}
 .scard-acts{display:flex;gap:2px;margin:0 -6px -6px}
 .scard-new{border-style:dashed;align-items:center;justify-content:center;flex-direction:row;color:var(--muted);min-height:96px}
@@ -294,19 +297,19 @@ body.full-view #view-ssh{flex:1;display:flex;flex-direction:column;min-height:0}
 .konsole-bar{display:flex;align-items:center;gap:10px;padding:9px 20px;border-bottom:1px solid var(--border);flex-wrap:wrap}
 #konsole-name{font-family:var(--mono);font-size:12px;color:var(--text-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #konsole-status{font-size:12px}
-#console-term{flex:1;min-height:0;background:#0b0d17;padding:6px 0 0 8px}
+#console-term{flex:1;min-height:0;background:var(--term-bg);padding:6px 0 0 8px}
 .chk{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2);margin-top:8px}
 .chk input{width:auto}
 .cterm-modal{width:min(1100px,96vw);height:min(720px,88vh);max-height:none;padding:0;display:flex;flex-direction:column;overflow:hidden}
 .cterm-modal .konsole-bar strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#cterm{flex:1;min-height:0;background:#0b0d17;padding:6px 0 0 8px}
+#cterm{flex:1;min-height:0;background:var(--term-bg);padding:6px 0 0 8px}
 .chk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:0 14px}
 .chk-grid .chk{margin-top:6px}
 .perm-area{font-size:11px;color:var(--muted);margin:14px 0 0;text-transform:uppercase;letter-spacing:.04em}
 .tags{display:flex;gap:4px;flex-wrap:wrap}
 
 /* ── Modals & Toast ──────────────────────────────── */
-.modal-backdrop{position:fixed;inset:0;background:rgba(5,6,12,.55);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px}
+.modal-backdrop{position:fixed;inset:0;background:var(--scrim);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px}
 .modal{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;width:440px;max-width:100%;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow)}
 .modal h3{margin:0 0 6px;font-size:16px;font-weight:600}
 .modal-actions{display:flex;gap:8px;margin-top:18px;justify-content:flex-end}
@@ -325,7 +328,7 @@ body.full-view #view-ssh{flex:1;display:flex;flex-direction:column;min-height:0}
 @media (max-width:820px){
   .sb{position:fixed;left:0;top:0;z-index:60;transform:translateX(-100%);transition:transform .2s;box-shadow:var(--shadow)}
   body.nav-open .sb{transform:none}
-  body.nav-open .scrim{display:block;position:fixed;inset:0;background:rgba(5,6,12,.5);z-index:50}
+  body.nav-open .scrim{display:block;position:fixed;inset:0;background:var(--scrim);z-index:50}
   #menu-btn{display:inline-flex}
   .topbar{padding:12px 16px}
   main{padding:16px}
@@ -412,11 +415,11 @@ body.full-view #view-ssh{flex:1;display:flex;flex-direction:column;min-height:0}
 <div id="view-containers">
   <section class="cards host" id="host" aria-label="Auslastung des Servers"></section>
   <div class="toolbar">
-    <div class="search"><svg class="i"><use href="#i-search"/></svg><input type="text" id="c-search" placeholder="Container suchen…" oninput="cSearch=this.value.trim().toLowerCase();render(last)"></div>
+    <div class="search"><svg class="i"><use href="#i-search"/></svg><input type="text" id="c-search" aria-label="Container suchen" placeholder="Container suchen…" oninput="cSearch=this.value.trim().toLowerCase();render(last)"></div>
     <div class="chips" id="c-chips">
-      <button class="chip on" data-f="all" onclick="setFilter('all')">Alle</button>
-      <button class="chip" data-f="run" onclick="setFilter('run')">Laufend</button>
-      <button class="chip" data-f="stop" onclick="setFilter('stop')">Gestoppt</button>
+      <button class="chip on" data-f="all" aria-pressed="true" onclick="setFilter('all')">Alle</button>
+      <button class="chip" data-f="run" aria-pressed="false" onclick="setFilter('run')">Laufend</button>
+      <button class="chip" data-f="stop" aria-pressed="false" onclick="setFilter('stop')">Gestoppt</button>
     </div>
   </div>
   <div id="container-grid"><div class="empty-state">lädt…</div></div>
@@ -489,9 +492,9 @@ body.full-view #view-ssh{flex:1;display:flex;flex-direction:column;min-height:0}
     <p class="hint"><b>Admin</b>: voller Zugriff auf alles. <b>Benutzer</b>: bekommen die Rechte und Server aller ihrer Gruppen.</p>
     <div id="usr-list"><div class="empty-state">lädt…</div></div>
     <div class="form-row">
-      <input id="usr-new-name" type="text" placeholder="Benutzername" autocomplete="off">
-      <input id="usr-new-pass" type="password" placeholder="Passwort (min. 8 Zeichen)" autocomplete="new-password">
-      <select id="usr-new-role" onchange="$('usr-new-group').style.display=this.value==='admin'?'none':''"><option value="user">Benutzer</option><option value="admin">Admin</option></select>
+      <input id="usr-new-name" type="text" aria-label="Benutzername" placeholder="Benutzername" autocomplete="off">
+      <input id="usr-new-pass" type="password" aria-label="Passwort" placeholder="Passwort (min. 8 Zeichen)" autocomplete="new-password">
+      <select id="usr-new-role" aria-label="Rolle" onchange="$('usr-new-group').style.display=this.value==='admin'?'none':''"><option value="user">Benutzer</option><option value="admin">Admin</option></select>
       <select id="usr-new-group" aria-label="Gruppe"></select>
       <button class="btn primary" onclick="createUser()"><svg class="i"><use href="#i-plus"/></svg>Anlegen</button>
     </div>
@@ -513,13 +516,13 @@ body.full-view #view-ssh{flex:1;display:flex;flex-direction:column;min-height:0}
     <div class="panel">
       <h2>Betriebsmodus</h2>
       <p class="hint">Aktuell: <span id="cfg-cur-mode"></span></p>
-      <select id="cfg-mode" onchange="onCfgModeChange()">
+      <select id="cfg-mode" aria-label="Betriebsmodus" onchange="onCfgModeChange()">
         <option value="standalone">Standalone</option><option value="hub">Hub</option><option value="agent">Agent</option>
       </select>
       <div id="cfg-agent-fields" style="display:none;flex-direction:column;gap:8px;margin-top:8px">
-        <input id="cfg-hub-url" type="text" placeholder="Hub-URL (https://dockpilot.example.com)">
-        <input id="cfg-agent-token" type="text" placeholder="Agent-Token (vom Hub)" style="font-family:var(--mono)">
-        <input id="cfg-agent-name" type="text" placeholder="Agent-Name (optional, Standard: Hostname)">
+        <input id="cfg-hub-url" type="text" aria-label="Hub-URL" placeholder="Hub-URL (https://dockpilot.example.com)">
+        <input id="cfg-agent-token" type="text" aria-label="Agent-Token" placeholder="Agent-Token (vom Hub)" style="font-family:var(--mono)">
+        <input id="cfg-agent-name" type="text" aria-label="Agent-Name" placeholder="Agent-Name (optional, Standard: Hostname)">
       </div>
       <div class="row" style="margin-top:12px">
         <button class="btn primary" onclick="saveMode()">Speichern und neu laden</button>
@@ -621,11 +624,11 @@ body.full-view #view-ssh{flex:1;display:flex;flex-direction:column;min-height:0}
 
 <!-- ── Modals ────────────────────────────────────── -->
 <div id="import-modal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeImportDialog()">
-  <div class="modal">
-    <h3>Stack importieren</h3>
-    <label class="f">URL zur docker-compose.yaml</label><input type="text" id="imp-url" placeholder="https://…/docker-compose.yaml">
-    <label class="f">Stack-Name</label><input type="text" id="imp-name" placeholder="mein-stack">
-    <label class="f">Token (optional)</label><select id="imp-token"><option value="">Kein Token</option></select>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="imp-title">
+    <h3 id="imp-title">Stack importieren</h3>
+    <label class="f" for="imp-url">URL zur docker-compose.yaml</label><input type="text" id="imp-url" placeholder="https://…/docker-compose.yaml">
+    <label class="f" for="imp-name">Stack-Name</label><input type="text" id="imp-name" placeholder="mein-stack">
+    <div class="admin-only"><label class="f" for="imp-token">Token (optional, nur über https://)</label><select id="imp-token"><option value="">Kein Token</option></select></div>
     <div class="err-text" id="imp-err"></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeImportDialog()">Abbrechen</button>
@@ -635,7 +638,7 @@ body.full-view #view-ssh{flex:1;display:flex;flex-direction:column;min-height:0}
 </div>
 
 <div id="cterm-modal" class="modal-backdrop" style="display:none">
-  <div class="modal cterm-modal" role="dialog" aria-label="Container-Konsole">
+  <div class="modal cterm-modal" role="dialog" aria-modal="true" aria-label="Container-Konsole">
     <div class="konsole-bar">
       <svg class="i"><use href="#i-term"/></svg><strong id="cterm-name"></strong>
       <span id="cterm-status" style="font-size:12px"></span>
@@ -648,7 +651,7 @@ body.full-view #view-ssh{flex:1;display:flex;flex-direction:column;min-height:0}
 </div>
 
 <div id="grp-modal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeGroupModal()">
-  <div class="modal" style="width:620px">
+  <div class="modal" style="width:620px" role="dialog" aria-modal="true" aria-labelledby="grp-modal-title">
     <h3 id="grp-modal-title">Neue Gruppe</h3>
     <label class="f" for="grp-name">Name</label><input id="grp-name" type="text" placeholder="z. B. Entwickler" maxlength="64">
     <div id="grp-perms"></div>
@@ -664,8 +667,8 @@ body.full-view #view-ssh{flex:1;display:flex;flex-direction:column;min-height:0}
 </div>
 
 <div id="ug-modal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeUserGroups()">
-  <div class="modal" style="width:420px">
-    <h3>Gruppen von <span id="ug-name"></span></h3>
+  <div class="modal" style="width:420px" role="dialog" aria-modal="true" aria-labelledby="ug-title">
+    <h3 id="ug-title">Gruppen von <span id="ug-name"></span></h3>
     <div id="ug-list"></div>
     <div class="err-text" id="ug-err"></div>
     <div class="modal-actions">
@@ -676,7 +679,7 @@ body.full-view #view-ssh{flex:1;display:flex;flex-direction:column;min-height:0}
 </div>
 
 <div id="ssh-modal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeSshModal()">
-  <div class="modal" style="width:520px">
+  <div class="modal" style="width:520px" role="dialog" aria-modal="true" aria-labelledby="ssh-modal-title">
     <h3 id="ssh-modal-title">SSH-Server hinzufügen</h3>
     <label class="f" for="ssh-name">Name</label><input id="ssh-name" type="text" placeholder="Mein Server">
     <label class="f" for="ssh-host">Host / IP</label><input id="ssh-host" type="text" placeholder="192.168.1.100">
@@ -694,6 +697,12 @@ body.full-view #view-ssh{flex:1;display:flex;flex-direction:column;min-height:0}
       <textarea id="ssh-cert" rows="3" spellcheck="false" style="font-family:var(--mono);font-size:12px" placeholder="ssh-ed25519-cert-v01@openssh.com AAAA…"></textarea>
       <label class="chk" id="ssh-cert-del-row" style="display:none"><input type="checkbox" id="ssh-cert-del">Hinterlegtes Zertifikat entfernen</label>
     </div>
+    <div id="ssh-hostkey-row">
+      <label class="f" for="ssh-hostkey">Host-Key-Fingerprint (empfohlen)</label>
+      <div style="display:flex;gap:8px"><input id="ssh-hostkey" type="text" spellcheck="false" autocomplete="off" placeholder="SHA256:…" style="flex:1;font-family:var(--mono);font-size:12px">
+        <button type="button" class="btn sm" onclick="scanHostKey()">Abrufen</button></div>
+      <p class="hint" style="margin:6px 0 0">„Abrufen“ liest den Schlüssel nur – erst der Vergleich mit <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code> auf dem Server schützt vor einem Angreifer im Netz. Leer = beim ersten Verbinden vertrauen.</p>
+    </div>
     <div id="ssh-pw-fields" style="display:none">
       <label class="f" for="ssh-password">Passwort</label><input id="ssh-password" type="password" autocomplete="new-password">
     </div>
@@ -707,10 +716,10 @@ body.full-view #view-ssh{flex:1;display:flex;flex-direction:column;min-height:0}
 </div>
 
 <div id="add-server-modal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeAddServerModal()">
-  <div class="modal" style="width:480px">
-    <h3>Agent einladen</h3>
+  <div class="modal" style="width:480px" role="dialog" aria-modal="true" aria-labelledby="srv-add-title">
+    <h3 id="srv-add-title">Agent einladen</h3>
     <div id="srv-agent-fields">
-      <label class="f">Agent-Name</label><input id="srv-agent-name" type="text" placeholder="mein-server-02">
+      <label class="f" for="srv-agent-name">Agent-Name</label><input id="srv-agent-name" type="text" placeholder="mein-server-02">
       <div id="srv-agent-token-box" style="display:none">
         <label class="f">Einladungs-Token</label>
         <div class="token-box" id="srv-agent-token-val"></div>
@@ -727,11 +736,11 @@ body.full-view #view-ssh{flex:1;display:flex;flex-direction:column;min-height:0}
 </div>
 
 <div id="pw-modal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closePwModal()">
-  <div class="modal" style="width:400px">
-    <h3>Passwort ändern</h3>
-    <label class="f">Aktuelles Passwort</label><input type="password" id="pw-cur" autocomplete="current-password">
-    <label class="f">Neues Passwort (min. 8 Zeichen)</label><input type="password" id="pw-new" autocomplete="new-password">
-    <label class="f">Neues Passwort wiederholen</label><input type="password" id="pw-new2" autocomplete="new-password">
+  <div class="modal" style="width:400px" role="dialog" aria-modal="true" aria-labelledby="pw-title">
+    <h3 id="pw-title">Passwort ändern</h3>
+    <label class="f" for="pw-cur">Aktuelles Passwort</label><input type="password" id="pw-cur" autocomplete="current-password">
+    <label class="f" for="pw-new">Neues Passwort (min. 8 Zeichen)</label><input type="password" id="pw-new" autocomplete="new-password">
+    <label class="f" for="pw-new2">Neues Passwort wiederholen</label><input type="password" id="pw-new2" autocomplete="new-password">
     <div class="err-text" id="pw-err"></div>
     <div class="modal-actions">
       <button class="btn" onclick="closePwModal()">Abbrechen</button>
@@ -762,6 +771,9 @@ function renderVersion(v,rel){
   else u.style.display='none';
 }
 const ico=(n,cls='')=>`<svg class="i ${cls}"><use href="#i-${n}"/></svg>`;
+// jsArg: Wert als JS-Stringliteral für Inline-Handler (onclick="fn(${jsArg(x)})").
+// esc() allein reicht dort nicht, weil der Browser &#39; vor dem Ausführen wieder zu ' dekodiert.
+const jsArg=t=>esc(JSON.stringify(String(t??'')));
 const esc=t=>String(t??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 const fmtBytes=b=>{if(b==null)return '–';const u=['B','KB','MB','GB','TB'];let i=0;b=+b;
   while(b>=1024&&i<u.length-1){b/=1024;i++}return b.toFixed(b<10&&i>0?1:0)+' '+u[i]};
@@ -917,13 +929,13 @@ const serverLabel=id=>{
 };
 function renderGroups(){
   $('grp-list').innerHTML=_groups.map(g=>{
-    const id=esc(g.id),np=(g.permissions||[]).length,all=(g.servers||[]).includes('*');
+    const np=(g.permissions||[]).length,all=(g.servers||[]).includes('*');
     const srv=all?'alle Server':`${(g.servers||[]).length} Server`;
     const members=(window._userList||[]).filter(u=>u.role!=='admin'&&(u.groups||[]).includes(g.id)).length;
     return `<div class="list-row">
       <span class="grow"><b>${esc(g.name)}</b> <span class="hint">· ${np} ${np===1?'Recht':'Rechte'} · ${srv} · ${members} ${members===1?'Mitglied':'Mitglieder'}</span></span>
-      <button class="btn sm" onclick="openGroupModal('${id}')">${ico('edit')}Bearbeiten</button>
-      <button class="ibtn bad" onclick="deleteGroup('${id}')" aria-label="Gruppe löschen">${ico('trash')}</button>
+      <button class="btn sm" onclick="openGroupModal(${jsArg(g.id)})">${ico('edit')}Bearbeiten</button>
+      <button class="ibtn bad" onclick="deleteGroup(${jsArg(g.id)})" aria-label="Gruppe löschen">${ico('trash')}</button>
     </div>`;
   }).join('')||emptyRow('Noch keine Gruppen');
 }
@@ -1075,7 +1087,7 @@ async function loadAgentVersion(){
   const srv=activeServer,name=(agentServerList.find(s=>s.id===srv)||{}).name||'Agent';
   el.textContent=`${name}: …`;el.style.display='';
   try{
-    const r=await fetch(`/api/servers/${srv}/version`);const j=await r.json().catch(()=>({}));
+    const r=await fetch(`/api/servers/${encodeURIComponent(srv)}/version`);const j=await r.json().catch(()=>({}));
     if(srv!==activeServer)return;
     const latest=(me.release||{}).latest,old=r.ok&&newerVersion(latest,j.version);
     el.textContent=`${name}: `+(r.ok?fmtVersion(j.version):'nicht erreichbar')+(old?` (Update auf ${fmtVersion(latest)} verfügbar)`:'');
@@ -1127,8 +1139,8 @@ const DOCKER_PARTS=[['images','Images'],['containers','Container'],['volumes','V
 function _renderHostSection(h){
   pushHist('cpu',h.cpu);pushHist('mem',h.mem_pct);
   const d=h.disk,dk=h.docker;
-  let c=`<div class="host-meta"><span><b>${h.cpus||'–'}</b> CPU-Kerne</span>`
-    +(h.load?`<span>Load <b>${h.load.map(x=>x.toFixed(2)).join(' · ')}</b> (1 · 5 · 15 Min)</span>`:'')
+  let c=`<div class="host-meta"><span><b>${esc(h.cpus||'–')}</b> CPU-Kerne</span>`
+    +(h.load?`<span>Load <b>${h.load.map(x=>(+x).toFixed(2)).join(' · ')}</b> (1 · 5 · 15 Min)</span>`:'')
     +(h.uptime?`<span>Läuft seit <b>${fmtUp(h.uptime)}</b></span>`:'')+`</div>`;
   const tile=(lbl,p,val,sub,body)=>`<div class="card mt"><div class="mt-top"><span class="lbl">${lbl}</span>${chipFor(p)}</div>`
     +`<div class="mt-val"><span class="val">${val}</span><span class="sub">${sub}</span></div>${body}</div>`;
@@ -1138,7 +1150,7 @@ function _renderHostSection(h){
   if(dk){
     const tot=DOCKER_PARTS.reduce((s,[k])=>s+(dk[k]||0),0);
     const seg=DOCKER_PARTS.map(([k,n],i)=>dk[k]>0&&tot?`<i style="width:${dk[k]/tot*100}%;background:var(--viz-${i+1})" title="${n}: ${fmtBytes(dk[k])}"></i>`:'').join('');
-    const leg=DOCKER_PARTS.map(([k,n],i)=>`<div><span class="sw" style="background:var(--viz-${i+1})"></span>${n}${k==='images'&&dk.images_count!=null?` <span class="hint">(${dk.images_count})</span>`:''}<span class="v">${fmtBytes(dk[k]||0)}</span></div>`).join('');
+    const leg=DOCKER_PARTS.map(([k,n],i)=>`<div><span class="sw" style="background:var(--viz-${i+1})"></span>${n}${k==='images'&&dk.images_count!=null?` <span class="hint">(${esc(dk.images_count)})</span>`:''}<span class="v">${fmtBytes(dk[k]||0)}</span></div>`).join('');
     c+=`<div class="card mt"><div class="mt-top"><span class="lbl">Docker-Speicher</span></div><div class="mt-val"><span class="val">${fmtBytes(tot)}</span><span class="sub">gesamt</span></div>`
       +`<div class="stack" role="img" aria-label="Aufteilung des Docker-Speichers">${seg}</div><div class="legend">${leg}</div></div>`;
   }
@@ -1146,17 +1158,18 @@ function _renderHostSection(h){
   if(hostHover){const el=document.querySelector(`#host .spark[data-k="${hostHover.k}"]`);if(el)showSparkHover(el,hostHover.f)}
 }
 async function loadHost(){if(meLoaded&&!can('containers.view'))return;try{const r=await fetch('/api/host');if(!r.ok||activeServer)return;_renderHostSection(await r.json());}catch(e){}}
-async function loadAgentHost(serverId){try{const r=await fetch(`/api/servers/${serverId}/host`);if(!r.ok||serverId!==activeServer)return;_renderHostSection(await r.json());}catch(e){}}
+async function loadAgentHost(serverId){try{const r=await fetch(`/api/servers/${encodeURIComponent(serverId)}/host`);if(!r.ok||serverId!==activeServer)return;_renderHostSection(await r.json());}catch(e){}}
 async function loadSizes(){if(meLoaded&&!can('containers.view'))return;try{const r=await fetch('/api/sizes');if(r.ok)sz=await r.json()}catch(e){}}
 
 /* ── Container ───────────────────────────────────── */
 let cFilter='all',cSearch='';
-function setFilter(f){cFilter=f;document.querySelectorAll('#c-chips .chip').forEach(b=>b.classList.toggle('on',b.dataset.f===f));render(last)}
+function setFilter(f){cFilter=f;document.querySelectorAll('#c-chips .chip').forEach(b=>{b.classList.toggle('on',b.dataset.f===f);b.setAttribute('aria-pressed',b.dataset.f===f)});render(last)}
 function getCollapsed(){try{return new Set(JSON.parse(localStorage.getItem('dp_collapsed'))||[])}catch{return new Set()}}
 function toggleGroup(g){
   const s=getCollapsed();s.has(g)?s.delete(g):s.add(g);
   try{localStorage.setItem('dp_collapsed',JSON.stringify([...s]))}catch(e){}
-  document.querySelector(`.group-section[data-stack="${CSS.escape(g)}"]`)?.classList.toggle('collapsed');
+  const sec=document.querySelector(`.group-section[data-stack="${CSS.escape(g)}"]`);
+  if(sec){sec.classList.toggle('collapsed');sec.querySelector('.group-hdr').setAttribute('aria-expanded',!sec.classList.contains('collapsed'))}
 }
 async function act(id,action){
   const name=(last.find(c=>c.id===id)||{}).name||id;
@@ -1164,7 +1177,7 @@ async function act(id,action){
   if(action==='stop'&&!confirm(`"${name}" stoppen?`))return;
   busy[id]=true;render(last);
   try{
-    const url=activeServer?`/api/servers/${activeServer}/containers/${id}/${action}`:`/api/containers/${id}/${action}`;
+    const cid=encodeURIComponent(id),url=activeServer?`/api/servers/${encodeURIComponent(activeServer)}/containers/${cid}/${action}`:`/api/containers/${cid}/${action}`;
     const r=await fetch(url,{method:'POST'});
     if(r.status===401){location.href='/login';return}
     const j=await r.json().catch(()=>({}));
@@ -1226,11 +1239,11 @@ function statCell(lbl,v){
 }
 function renderCard(c){
   const b=busy[c.id],dis=b?'disabled':'',id=esc(c.id);
-  const btn=(action,icon,label,cls='')=>`<button class="ibtn ${cls}" ${dis} title="${label}" aria-label="${label}" onclick="act('${id}','${action}')">${ico(icon)}</button>`;
+  const btn=(action,icon,label,cls='')=>`<button class="ibtn ${cls}" ${dis} title="${label}" aria-label="${label}" onclick="act(${jsArg(c.id)},'${action}')">${ico(icon)}</button>`;
   const acts=b?`<span class="ibtn">${ico('restart','spin')}</span>`
     :`<span class="need-containers-control">${c.running?btn('stop','stop','Stoppen','bad')+btn('restart','restart','Neu starten'):btn('start','play','Starten','ok')}</span>`
      +`<span class="need-containers-update">${btn('update','download','Image aktualisieren')}</span>`
-     +(c.running?`<span class="need-containers-exec"><button class="ibtn" ${dis} title="Konsole" aria-label="Konsole" onclick="openContainerConsole('${id}','${esc(c.name)}')">${ico('term')}</button></span>`:'');
+     +(c.running?`<span class="need-containers-exec"><button class="ibtn" ${dis} title="Konsole" aria-label="Konsole" onclick="openContainerConsole(${jsArg(c.id)},${jsArg(c.name)})">${ico('term')}</button></span>`:'');
   return `<div class="ccard" draggable="true" data-id="${id}" data-name="${esc(c.name)}">
     <span class="dot ${c.running?'up':'down'}"></span>
     <div style="min-width:0"><div class="c-name">${esc(c.name)}</div><div class="c-img" title="${esc(c.image)}">${esc(c.image)}</div></div>
@@ -1265,13 +1278,13 @@ function render(list){
     const sorted=[...grp].sort((a,b)=>{const ia=saved.indexOf(a.name),ib=saved.indexOf(b.name);
       if(ia<0&&ib<0)return 0;if(ia<0)return 1;if(ib<0)return -1;return ia-ib;});
     return `<section class="group-section${collapsed.has(g)?' collapsed':''}" draggable="true" data-stack="${esc(g)}">
-      <div class="group-hdr" onclick="toggleGroup(this.parentNode.dataset.stack)">${ico('chev','chev')}<span class="dot ${dot}"></span>${esc(label)}<span class="cnt">${run} / ${total} aktiv</span></div>
+      <div class="group-hdr" role="button" tabindex="0" aria-expanded="${!collapsed.has(g)}" onclick="toggleGroup(this.parentNode.dataset.stack)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}">${ico('chev','chev')}<span class="dot ${dot}"></span>${esc(label)}<span class="cnt">${run} / ${total} aktiv</span></div>
       <div class="ccard-grid" data-group="${esc(g)}">${sorted.map(renderCard).join('')}</div></section>`;
   }).join('');
   initDrag();initStackDrag();
 }
 async function load(){if(meLoaded&&!can('containers.view'))return;try{
-  const srv=activeServer,url=srv?`/api/servers/${srv}/containers`:'/api/containers';
+  const srv=activeServer,url=srv?`/api/servers/${encodeURIComponent(srv)}/containers`:'/api/containers';
   const r=await fetch(url);
   if(r.status===401){location.href='/login';return}
   if(srv!==activeServer)return;
@@ -1300,11 +1313,12 @@ networks:
     external: true
     name: proxy
 `;
-const stackUrl=(name,suffix='')=>(activeServer?`/api/servers/${activeServer}/stacks/${name}`:`/api/stacks/${name}`)+suffix;
+const stackUrl=(name,suffix='')=>{const n=encodeURIComponent(name);return (activeServer?`/api/servers/${encodeURIComponent(activeServer)}/stacks/${n}`:`/api/stacks/${n}`)+suffix};
 async function loadStacks(){
   try{
-    const r=await fetch(activeServer?`/api/servers/${activeServer}/stacks`:'/api/stacks');
+    const r=await fetch(activeServer?`/api/servers/${encodeURIComponent(activeServer)}/stacks`:'/api/stacks');
     if(r.status===401){location.href='/login';return}
+    if(!r.ok){$('scard-grid').innerHTML='<div class="empty-state">Fehler beim Laden</div>';return}
     const stacks=(await r.json())||[];
     let html=stacks.map(s=>{
       const n=esc(s.name);
@@ -1312,17 +1326,17 @@ async function loadStacks(){
       const total=ctrs.length,run=ctrs.filter(c=>c.running).length;
       const dot=total===0?'down':run===total?'up':run>0?'partial':'down';
       const meta=total===0?'keine Container':`${run} von ${total} laufen`;
-      const qb=(a,i,l,c='')=>`<button class="ibtn ${c}" title="${l}" aria-label="${l}" onclick="event.stopPropagation();quickAction('${n}','${a}')">${ico(i)}</button>`;
-      return `<div class="scard${currentStack===s.name?' active':''}" onclick="openStack('${n}')">
-        <div class="scard-name">${n}</div>
+      const qb=(a,i,l,c='')=>`<button class="ibtn ${c}" title="${l}" aria-label="${l}" onclick="event.stopPropagation();quickAction(${jsArg(s.name)},'${a}')">${ico(i)}</button>`;
+      return `<div class="scard${currentStack===s.name?' active':''}" onclick="openStack(${jsArg(s.name)})">
+        <button class="scard-name" type="button">${n}</button>
         <div class="scard-meta"><span class="dot ${dot}"></span>${meta}</div>
         <div class="scard-acts"><span class="need-stacks-control">${qb('up','play','Deploy','ok')}${qb('down','stop','Down','bad')}</span><span class="need-stacks-edit">${qb('pull','download','Pull')}</span>${qb('logs','logs','Logs')}</div>
       </div>`;
     }).join('');
     if(!stacks.length&&!can('stacks.edit'))html='<div class="empty-state">Keine Stacks vorhanden</div>';
-    html+=`<div class="scard scard-new need-stacks-edit" onclick="newStack()">${ico('plus')}Neuer Stack</div>`;
+    html+=`<button type="button" class="scard scard-new need-stacks-edit" onclick="newStack()">${ico('plus')}Neuer Stack</button>`;
     $('scard-grid').innerHTML=html;
-  }catch(e){}
+  }catch(e){$('scard-grid').innerHTML='<div class="empty-state">Netzwerkfehler</div>'}
 }
 async function quickAction(name,action){
   const prev=currentStack;currentStack=name;
@@ -1378,7 +1392,9 @@ function newStack(){
 }
 async function openImportDialog(){
   $('imp-url').value='';$('imp-name').value='';$('imp-err').textContent='';
-  const r=await fetch('/api/tokens');const names=r.ok?await r.json():[];
+  // Gespeicherte Tokens darf nur ein Admin verwenden.
+  let names=[];
+  if(isAdmin()){try{const r=await fetch('/api/tokens');if(r.ok)names=await r.json()}catch(e){}}
   $('imp-token').innerHTML='<option value="">Kein Token</option>'+names.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
   $('import-modal').style.display='';
 }
@@ -1388,7 +1404,9 @@ async function doImport(){
   if(!url||!name){err.textContent='URL und Stack-Name sind erforderlich.';return}
   err.textContent='';btn.disabled=true;btn.textContent='Lädt…';
   try{
-    const r=await fetch('/api/stacks/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url,name,token})});
+    // Auf einem Agent lädt der Hub die Datei und legt sie dort ab.
+    const imp=activeServer?`/api/servers/${encodeURIComponent(activeServer)}/stacks/import`:'/api/stacks/import';
+    const r=await fetch(imp,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url,name,token})});
     const j=await r.json().catch(()=>({}));
     if(r.ok){closeImportDialog();toast(`"${name}" importiert`);loadStacks();}else err.textContent=j.detail||'Fehler';
   }catch(e){err.textContent='Netzwerkfehler: '+e.message}
@@ -1398,7 +1416,7 @@ async function doImport(){
 /* ── Registries & Tokens ─────────────────────────── */
 // entryRow: Eintrag in einer Registries-Kachel mit Name, Beschreibung und Entfernen-Button.
 const entryRow=(name,desc,fn,arg)=>`<div class="entry"><div class="grow"><div class="nm" title="${esc(name)}">${esc(name)}</div><div class="ds">${desc}</div></div>`
-  +`<button class="ibtn bad" aria-label="${esc(name)} entfernen" onclick="${fn}('${esc(arg)}')">${ico('trash')}</button></div>`;
+  +`<button class="ibtn bad" aria-label="${esc(name)} entfernen" onclick="${fn}(${jsArg(arg)})">${ico('trash')}</button></div>`;
 const tileEmpty=t=>`<div class="tile-empty">${t}</div>`;
 let _regs=[],_insecure=[];
 const sameReg=(a,b)=>a.replace(/^https?:\/\//,'').replace(/\/$/,'')===b.replace(/^https?:\/\//,'').replace(/\/$/,'');
@@ -1467,7 +1485,7 @@ async function deleteInsecure(reg){
 }
 
 /* ── Images ──────────────────────────────────────── */
-const imageUrl=(suffix='')=>(activeServer?`/api/servers/${activeServer}/images`:'/api/images')+suffix;
+const imageUrl=(suffix='')=>(activeServer?`/api/servers/${encodeURIComponent(activeServer)}/images`:'/api/images')+suffix;
 async function loadImages(){
   const srv=activeServer;
   try{
@@ -1479,14 +1497,14 @@ async function loadImages(){
     $('img-meta').textContent=`${imgs.length} Images · ${unused} ungenutzt`;
     if(!imgs.length){$('img-grid').innerHTML='<div class="empty-state">Keine Images gefunden</div>';return}
     $('img-grid').innerHTML=imgs.map(i=>{
-      const tag=i.tags.length?esc(i.tags.join(', ')):'<span class="icard-tag-none">&lt;none&gt;</span>';
+      const tags=i.tags||[],tag=tags.length?esc(tags.join(', ')):'<span class="icard-tag-none">&lt;none&gt;</span>';
       const badge=i.in_use?'<span class="badge ok">In Verwendung</span>':'<span class="badge mute">Ungenutzt</span>';
-      const del=i.in_use?'':`<button class="ibtn bad" aria-label="Löschen" onclick="deleteImage('${esc(i.id)}','${esc(i.tags[0]||i.short_id)}')">${ico('trash')}</button>`;
-      return `<div class="icard"><div class="icard-tags" title="${tag}">${tag}</div><div class="icard-id">${esc(i.short_id)}</div>
+      const del=i.in_use?'':`<button class="ibtn bad" aria-label="Löschen" onclick="deleteImage(${jsArg(i.id)},${jsArg(tags[0]||i.short_id)})">${ico('trash')}</button>`;
+      return `<div class="icard"><div class="icard-tags" title="${esc(tags.join(', ')||'<none>')}">${tag}</div><div class="icard-id">${esc(i.short_id)}</div>
         <div class="icard-meta"><span>${fmtBytes(i.size)}</span><span>vor ${fmtAgo(i.created)}</span></div>
         <div class="icard-footer">${badge}${del}</div></div>`;
     }).join('');
-  }catch(e){}
+  }catch(e){$('img-grid').innerHTML='<div class="empty-state">Netzwerkfehler</div>'}
 }
 async function deleteImage(id,label){
   if(!confirm(`Image "${label}" löschen?`))return;
@@ -1505,7 +1523,8 @@ async function pruneImages(){
 let _servers=[],_aguId='';
 async function loadServers(){
   try{const r=await fetch('/api/servers');if(r.status===401){location.href='/login';return}
-    _servers=(r.ok?await r.json():[]).filter(s=>s.type==='agent');renderServers();}catch(e){}
+    if(!r.ok){$('srv-grid').innerHTML='<div class="empty-state">Fehler beim Laden</div>';return}
+    _servers=(await r.json()).filter(s=>s.type==='agent');renderServers();}catch(e){$('srv-grid').innerHTML='<div class="empty-state">Netzwerkfehler</div>'}
 }
 function renderServers(){
   const grid=$('srv-grid');
@@ -1515,11 +1534,14 @@ function renderServers(){
     return `<div class="srvcard">
       <div class="srvcard-top">${ico('plug')}<span class="srvcard-name">${n}</span><span class="badge acc">Agent</span></div>
       <div class="srvcard-host">${host}</div>
+      ${s.pending_url?`<div class="hint admin-only" style="margin-top:6px;color:var(--warning)">Agent meldet neue URL: <span style="font-family:var(--mono)">${esc(s.pending_url)}</span>
+        <div style="display:flex;gap:6px;margin-top:6px"><button class="btn sm" onclick="confirmAgentUrl(${jsArg(s.id)},true)">Übernehmen</button>
+        <button class="btn sm" onclick="confirmAgentUrl(${jsArg(s.id)},false)">Verwerfen</button></div></div>`:''}
       <div class="srvcard-status checking" id="srv-status-${id}">Prüfe…</div>
       <div class="srvcard-actions">
-        <button class="btn sm" onclick="testServer('${id}')">${ico('restart')}Testen</button>
+        <button class="btn sm" onclick="testServer(${jsArg(s.id)})">${ico('restart')}Testen</button>
         <span style="flex:1"></span>
-        <button class="ibtn bad" aria-label="Entfernen" onclick="deleteServer('${id}')">${ico('trash')}</button>
+        <button class="ibtn bad" aria-label="Entfernen" onclick="deleteServer(${jsArg(s.id)})">${ico('trash')}</button>
       </div>
     </div>`;
   }).join('');
@@ -1529,18 +1551,31 @@ async function testServer(id,silent,prefix='srv-status-'){
   const el=$(prefix+id);
   if(el){el.className='srvcard-status checking';el.textContent='Prüfe…';}
   try{
-    const r=await fetch('/api/servers/'+id+'/test',{method:'POST'});
+    const r=await fetch('/api/servers/'+encodeURIComponent(id)+'/test',{method:'POST'});
     if(el){el.className='srvcard-status '+(r.ok?'online':'offline');el.textContent=r.ok?'Online':'Offline';}
     if(!silent){if(r.ok)toast('Verbindung OK');else{const j=await r.json().catch(()=>({}));toast('Verbindung fehlgeschlagen: '+(j.detail||r.status),true);
       if(isAdmin()&&/host key geändert/i.test(j.detail||'')&&confirm('Der Host-Schlüssel des Servers hat sich geändert.\nNur bestätigen, wenn der Server bewusst neu aufgesetzt wurde. Neuen Schlüssel vertrauen?')){
-        await fetch('/api/servers/'+id+'/known-host',{method:'DELETE'});testServer(id,false,prefix);}}}
+        await fetch('/api/servers/'+encodeURIComponent(id)+'/known-host',{method:'DELETE'});testServer(id,false,prefix);}}}
   }catch(e){if(el){el.className='srvcard-status offline';el.textContent='Offline';}}
 }
 const srvName=id=>(_servers.find(s=>s.id===id)||{}).name||id;
+// Eine neue Agent-URL gilt erst nach Bestätigung, damit niemand mit dem Token den Hub umleiten kann.
+async function confirmAgentUrl(id,ok){
+  const s=_servers.find(x=>x.id===id);
+  if(ok&&!confirm(`Neue URL für "${srvName(id)}" übernehmen?\n${s?s.pending_url:''}\n\nNur bestätigen, wenn du den Agent bewusst umgezogen hast.`))return;
+  try{
+    // Die angezeigte URL mitschicken: Hat der Agent inzwischen eine andere gemeldet, lehnt der Hub ab.
+    const body=ok?{confirm_url:s?s.pending_url:''}:{reject_url:true};
+    const r=await fetch('/api/servers/'+encodeURIComponent(id),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(r.ok)toast(ok?'URL übernommen':'URL verworfen');
+    else{const j=await r.json().catch(()=>({}));toast(j.detail||'Fehler',true)}
+  }catch(e){toast('Netzwerkfehler',true)}
+  loadServers();
+}
 async function deleteServer(id){
   const name=srvName(id);
   if(!confirm(`Server "${name}" entfernen?`))return;
-  const r=await fetch('/api/servers/'+id,{method:'DELETE'});
+  const r=await fetch('/api/servers/'+encodeURIComponent(id),{method:'DELETE'});
   r.ok?toast('Server entfernt'):toast('Fehler',true);
   loadServers();loadAgentServers();
 }
@@ -1556,7 +1591,7 @@ async function openAddServerModal(){
       $('srv-agent-token-val').textContent=j.token;$('srv-agent-token-box').style.display='';
       $('srv-agent-token-loading').style.display='none';$('srv-done-btn').style.display='';
       $('srv-agent-name').oninput=function(){
-        if(j.id)fetch('/api/servers/'+j.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:this.value||'Agent'})}).catch(()=>{});
+        if(j.id)fetch('/api/servers/'+encodeURIComponent(j.id),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:this.value||'Agent'})}).catch(()=>{});
       };
       loadServers();
     }else{$('srv-agent-token-loading').textContent='Fehler beim Erzeugen';$('srv-done-btn').style.display='';}
@@ -1567,7 +1602,8 @@ function closeAddServerModal(){$('add-server-modal').style.display='none';loadSe
 let _sshServers=[],_sshEditId=null;
 async function loadSshServers(){
   try{const r=await fetch('/api/servers');if(r.status===401){location.href='/login';return}
-    _sshServers=(r.ok?await r.json():[]).filter(s=>s.type!=='agent');renderSshServers();}catch(e){}
+    if(!r.ok){$('ssh-grid').innerHTML='<div class="empty-state">Fehler beim Laden</div>';return}
+    _sshServers=(await r.json()).filter(s=>s.type!=='agent');renderSshServers();}catch(e){$('ssh-grid').innerHTML='<div class="empty-state">Netzwerkfehler</div>'}
 }
 const sshAuthLabel=s=>s.auth_type==='password'?'Passwort':s.has_cert?'Zertifikat':'Schlüssel';
 function renderSshServers(){
@@ -1577,14 +1613,14 @@ function renderSshServers(){
     const id=esc(s.id);
     return `<div class="srvcard">
       <div class="srvcard-top">${ico('server')}<span class="srvcard-name">${esc(s.name)}</span><span class="badge mute">${sshAuthLabel(s)}</span></div>
-      <div class="srvcard-host">${esc(s.username||'')}@${esc(s.host||'')}:${s.port||22}</div>
+      <div class="srvcard-host">${esc(s.username||'')}@${esc(s.host||'')}:${esc(s.port||22)}</div>
       <div class="srvcard-status checking" id="ssh-status-${id}">Prüfe…</div>
       <div class="srvcard-actions">
-        <button class="btn sm primary" onclick="openConsole('${id}')">${ico('term')}Konsole</button>
-        <button class="btn sm" onclick="testServer('${id}',false,'ssh-status-')">${ico('restart')}Testen</button>
-        <button class="btn sm admin-only" onclick="openSshModal('${id}')">${ico('edit')}Bearbeiten</button>
+        <button class="btn sm primary" onclick="openConsole(${jsArg(s.id)})">${ico('term')}Konsole</button>
+        <button class="btn sm" onclick="testServer(${jsArg(s.id)},false,'ssh-status-')">${ico('restart')}Testen</button>
+        <button class="btn sm admin-only" onclick="openSshModal(${jsArg(s.id)})">${ico('edit')}Bearbeiten</button>
         <span style="flex:1"></span>
-        <button class="ibtn bad admin-only" aria-label="Entfernen" onclick="deleteSsh('${id}')">${ico('trash')}</button>
+        <button class="ibtn bad admin-only" aria-label="Entfernen" onclick="deleteSsh(${jsArg(s.id)})">${ico('trash')}</button>
       </div>
     </div>`;
   }).join('');
@@ -1593,7 +1629,7 @@ function renderSshServers(){
 async function deleteSsh(id){
   const s=_sshServers.find(x=>x.id===id);
   if(!confirm(`SSH-Server "${s?s.name:id}" entfernen?`))return;
-  const r=await fetch('/api/servers/'+id,{method:'DELETE'});
+  const r=await fetch('/api/servers/'+encodeURIComponent(id),{method:'DELETE'});
   r.ok?toast('SSH-Server entfernt'):toast('Fehler',true);
   if(_conId===id)closeConsole();
   loadSshServers();
@@ -1603,17 +1639,29 @@ function openSshModal(id){
   $('ssh-modal-title').textContent=s?'SSH-Server bearbeiten':'SSH-Server hinzufügen';
   $('ssh-name').value=s?s.name:'';$('ssh-host').value=s?s.host||'':'';
   $('ssh-port').value=s?s.port||22:22;$('ssh-user').value=s?s.username||'':'';
-  ['ssh-key','ssh-pass','ssh-cert','ssh-password'].forEach(i=>$(i).value='');
+  ['ssh-key','ssh-pass','ssh-cert','ssh-password','ssh-hostkey'].forEach(i=>$(i).value='');
+  $('ssh-hostkey-row').style.display=s?'none':'';
   $('ssh-auth').value=s&&s.auth_type==='password'?'password':'key';onSshAuthChange();
   $('ssh-cert-del-row').style.display=s&&s.has_cert?'':'none';$('ssh-cert-del').checked=false;
   $('ssh-edit-hint').style.display=s?'':'none';$('ssh-err').textContent='';
   $('ssh-modal').style.display='';$('ssh-name').focus();
 }
 function closeSshModal(){$('ssh-modal').style.display='none'}
+async function scanHostKey(){
+  const host=$('ssh-host').value.trim(),err=$('ssh-err');
+  if(!host){err.textContent='Erst Host eintragen';return}
+  err.textContent='';
+  try{
+    const r=await fetch('/api/servers/host-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host,port:parseInt($('ssh-port').value)||22})});
+    const j=await r.json().catch(()=>({}));
+    if(r.ok)$('ssh-hostkey').value=j.fingerprint;else err.textContent=j.detail||'Fehler';
+  }catch(e){err.textContent='Netzwerkfehler'}
+}
 function onSshAuthChange(){const k=$('ssh-auth').value==='key';$('ssh-key-fields').style.display=k?'':'none';$('ssh-pw-fields').style.display=k?'none':'';}
 async function saveSsh(){
   const v=i=>$(i).value.trim(),err=$('ssh-err'),editId=_sshEditId;
   const body={type:'ssh',name:v('ssh-name'),host:v('ssh-host'),port:parseInt(v('ssh-port'))||22,username:v('ssh-user'),auth_type:$('ssh-auth').value};
+  if(!editId&&v('ssh-hostkey'))body.host_key=v('ssh-hostkey');
   if(!body.name||!body.host||!body.username){err.textContent='Name, Host und Benutzer sind erforderlich';return}
   if(body.auth_type==='key'){
     body.ssh_key=v('ssh-key');body.passphrase=$('ssh-pass').value;
@@ -1625,7 +1673,7 @@ async function saveSsh(){
   }
   err.textContent='';
   try{
-    const r=await fetch(editId?'/api/servers/'+editId:'/api/servers',{method:editId?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const r=await fetch(editId?'/api/servers/'+encodeURIComponent(editId):'/api/servers',{method:editId?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const j=await r.json().catch(()=>({}));
     if(!r.ok){err.textContent=j.detail||'Fehler beim Speichern';return}
   }catch(e){err.textContent='Netzwerkfehler';return}

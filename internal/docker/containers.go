@@ -3,13 +3,17 @@ package docker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
@@ -135,7 +139,14 @@ func fillStats(ctx context.Context, id string, info *ContainerInfo, totalMem uin
 	info.NetTx = &tx
 }
 
+// ErrSelf: DockPilot darf sich nicht selbst stoppen, ersetzen oder eine Shell in sich öffnen.
+// Im eigenen Container liegen Docker-Socket, Signaturschlüssel und alle Zugangsdaten.
+var ErrSelf = errors.New("Für den DockPilot-Container selbst nicht erlaubt")
+
 func ContainerAction(ctx context.Context, id, action string) error {
+	if (action == "stop" || action == "update") && IsSelf(ctx, id) {
+		return ErrSelf
+	}
 	switch action {
 	case "start":
 		return CLI.ContainerStart(ctx, id, container.StartOptions{})
@@ -162,8 +173,11 @@ func recreateWithNewImage(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("pull failed: %w", err)
 	}
-	io.Copy(io.Discard, out)
+	err = pullStreamError(out)
 	out.Close()
+	if err != nil {
+		return fmt.Errorf("pull failed: %w", err)
+	}
 
 	var primaryNet string
 	var primaryEP *network.EndpointSettings
@@ -179,16 +193,33 @@ func recreateWithNewImage(ctx context.Context, id string) error {
 		}
 	}
 
+	// Der alte Container wird erst gelöscht, wenn der neue läuft. Bis dahin heißt er
+	// <name>-dockpilot-old und kommt bei einem Fehler unter altem Namen zurück.
+	name := strings.TrimPrefix(c.Name, "/")
+	backup := name + "-dockpilot-old"
+	wasRunning := c.State != nil && c.State.Running
 	if err := CLI.ContainerStop(ctx, c.ID, container.StopOptions{}); err != nil {
 		return fmt.Errorf("stop failed: %w", err)
 	}
-	if err := CLI.ContainerRemove(ctx, c.ID, container.RemoveOptions{}); err != nil {
-		return fmt.Errorf("remove failed: %w", err)
+	if err := CLI.ContainerRename(ctx, c.ID, backup); err != nil {
+		if wasRunning {
+			CLI.ContainerStart(ctx, c.ID, container.StartOptions{})
+		}
+		return fmt.Errorf("rename failed: %w", err)
+	}
+	rollback := func(cause error) error {
+		if err := CLI.ContainerRename(ctx, c.ID, name); err != nil {
+			return fmt.Errorf("%w; Wiederherstellen fehlgeschlagen, alter Container heißt jetzt %s: %v", cause, backup, err)
+		}
+		if wasRunning {
+			CLI.ContainerStart(ctx, c.ID, container.StartOptions{})
+		}
+		return fmt.Errorf("%w (alter Container wiederhergestellt)", cause)
 	}
 
-	resp, err := CLI.ContainerCreate(ctx, c.Config, c.HostConfig, netCfg, nil, c.Name)
+	resp, err := CLI.ContainerCreate(ctx, c.Config, c.HostConfig, netCfg, nil, name)
 	if err != nil {
-		return fmt.Errorf("create failed: %w", err)
+		return rollback(fmt.Errorf("create failed: %w", err))
 	}
 
 	for netName, ep := range c.NetworkSettings.Networks {
@@ -199,7 +230,34 @@ func recreateWithNewImage(ctx context.Context, id string) error {
 			Aliases: filterAliases(ep.Aliases, c.ID[:12]),
 		})
 	}
-	return CLI.ContainerStart(ctx, resp.ID, container.StartOptions{})
+	if err := CLI.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+		CLI.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
+		return rollback(fmt.Errorf("start failed: %w", err))
+	}
+	if err := CLI.ContainerRemove(ctx, c.ID, container.RemoveOptions{}); err != nil {
+		return fmt.Errorf("neuer Container läuft, alter (%s) konnte nicht entfernt werden: %w", backup, err)
+	}
+	return nil
+}
+
+// pullStreamError liest den Fortschritts-Stream von ImagePull zu Ende. Fehler stehen
+// dort nur im Stream (z. B. "manifest unknown"), nicht im Rückgabewert von ImagePull.
+func pullStreamError(r io.Reader) error {
+	dec := json.NewDecoder(r)
+	for {
+		var m struct {
+			Error string `json:"error"`
+		}
+		if err := dec.Decode(&m); err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+		if m.Error != "" {
+			return errors.New(m.Error)
+		}
+	}
 }
 
 func filterAliases(aliases []string, shortID string) []string {
@@ -222,6 +280,67 @@ func ContainerSizes(ctx context.Context) (map[string]struct{ RW, RootFS int64 },
 		result[c.ID[:12]] = struct{ RW, RootFS int64 }{c.SizeRw, c.SizeRootFs}
 	}
 	return result, nil
+}
+
+var (
+	selfMu     sync.Mutex
+	selfID     string // volle ID des eigenen Containers, leer solange unbekannt
+	selfWarned bool
+)
+
+var mountinfoIDRe = regexp.MustCompile(`/(?:containers|overlay-containers)/([0-9a-f]{64})/`)
+
+// selfFullID ermittelt den eigenen Container über DOCKPILOT_CONTAINER, cgroup (v1),
+// mountinfo (v2, auch Podman) oder den Hostnamen. Nur ein Treffer wird gemerkt; schlägt
+// die Suche fehl (z. B. Daemon kurz weg), wird beim nächsten Aufruf neu gesucht,
+// damit sich der Selbstschutz nicht still abschaltet.
+func selfFullID() string {
+	selfMu.Lock()
+	defer selfMu.Unlock()
+	if selfID != "" {
+		return selfID
+	}
+	ref := os.Getenv("DOCKPILOT_CONTAINER")
+	if ref == "" {
+		ref = SelfContainerID()
+	}
+	if ref == "" {
+		if data, err := os.ReadFile("/proc/self/mountinfo"); err == nil {
+			if m := mountinfoIDRe.FindSubmatch(data); m != nil {
+				ref = string(m[1])
+			}
+		}
+	}
+	host, _ := os.Hostname()
+	if ref == "" {
+		ref = host
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var err error
+	if ref != "" {
+		var c container.InspectResponse
+		c, err = CLI.ContainerInspect(ctx, ref)
+		if err == nil && (ref != host || c.Config == nil || c.Config.Hostname == host) {
+			selfID = c.ID
+			return selfID
+		}
+	}
+	if !selfWarned {
+		selfWarned = true
+		log.Printf("Selbstschutz: eigener Container nicht gefunden (%v) – ggf. DOCKPILOT_CONTAINER=<name> setzen", err)
+	}
+	return ""
+}
+
+// IsSelf meldet, ob ref (ID, ID-Präfix oder Name) der DockPilot-Container selbst ist.
+func IsSelf(ctx context.Context, ref string) bool {
+	id := selfFullID()
+	if id == "" {
+		return false
+	}
+	c, err := CLI.ContainerInspect(ctx, ref)
+	return err == nil && c.ID == id
 }
 
 func SelfContainerID() string {

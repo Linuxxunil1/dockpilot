@@ -2,7 +2,9 @@ package servers
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"dockpilot/internal/config"
@@ -19,10 +21,12 @@ type Server struct {
 	Password string `json:"password,omitempty"`
 	SSHKey   string `json:"ssh_key,omitempty"`
 	// Optional: Passphrase des privaten Schlüssels und OpenSSH-Zertifikat (*-cert.pub).
-	Passphrase string   `json:"passphrase,omitempty"`
-	SSHCert    string   `json:"ssh_cert,omitempty"`
-	Token      string   `json:"token,omitempty"`
-	URL        string   `json:"url,omitempty"`
+	Passphrase string `json:"passphrase,omitempty"`
+	SSHCert    string `json:"ssh_cert,omitempty"`
+	Token      string `json:"token,omitempty"`
+	URL        string `json:"url,omitempty"`
+	// PendingURL: Der Agent meldet eine neue URL. Sie gilt erst, wenn ein Admin sie bestätigt.
+	PendingURL string   `json:"pending_url,omitempty"`
 	LastSeen   *float64 `json:"last_seen,omitempty"` // float64 handles both Python (float) and Go (int) timestamps
 }
 
@@ -50,26 +54,46 @@ func (s Server) Safe() map[string]interface{} {
 	if s.URL != "" {
 		m["url"] = s.URL
 	}
+	if s.PendingURL != "" {
+		m["pending_url"] = s.PendingURL
+	}
 	if s.LastSeen != nil {
 		m["last_seen"] = s.LastSeen
 	}
 	return m
 }
 
-func Load() []Server {
+// mu schützt das Lesen-Ändern-Schreiben von servers.json (Admin-Änderungen und
+// Agent-Registrierungen alle 60 s laufen gleichzeitig).
+var mu sync.Mutex
+
+// load liest servers.json. Eine unlesbare Datei ergibt einen Fehler statt einer
+// leeren Liste, damit sie beim nächsten Speichern nicht überschrieben wird.
+func load() ([]Server, error) {
 	data, err := os.ReadFile(config.ServersFile)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var list []Server
-	json.Unmarshal(data, &list)
-	return list
+	if err := json.Unmarshal(data, &list); err != nil {
+		return nil, fmt.Errorf("servers.json unlesbar: %w", err)
+	}
+	return list, nil
 }
 
-func Save(list []Server) error {
-	os.MkdirAll(config.DataDir, 0700)
+func save(list []Server) error {
 	data, _ := json.MarshalIndent(list, "", "  ")
-	return os.WriteFile(config.ServersFile, data, 0600)
+	return config.WriteFileAtomic(config.ServersFile, data, 0600)
+}
+
+func Load() []Server {
+	mu.Lock()
+	defer mu.Unlock()
+	list, _ := load()
+	return list
 }
 
 func Get(id string) *Server {
@@ -83,31 +107,48 @@ func Get(id string) *Server {
 }
 
 func Add(s Server) error {
-	list := Load()
-	list = append(list, s)
-	return Save(list)
+	mu.Lock()
+	defer mu.Unlock()
+	list, err := load()
+	if err != nil {
+		return err
+	}
+	return save(append(list, s))
 }
 
 func Update(id string, fn func(*Server)) error {
-	list := Load()
+	mu.Lock()
+	defer mu.Unlock()
+	list, err := load()
+	if err != nil {
+		return err
+	}
 	for i := range list {
 		if list[i].ID == id {
 			fn(&list[i])
-			return Save(list)
+			return save(list)
 		}
 	}
-	return nil
+	return fmt.Errorf("server nicht gefunden")
 }
 
 func Delete(id string) error {
-	list := Load()
+	mu.Lock()
+	defer mu.Unlock()
+	list, err := load()
+	if err != nil {
+		return err
+	}
 	newList := list[:0]
 	for _, s := range list {
 		if s.ID != id {
 			newList = append(newList, s)
 		}
 	}
-	return Save(newList)
+	if len(newList) == len(list) {
+		return fmt.Errorf("server nicht gefunden")
+	}
+	return save(newList)
 }
 
 func TouchLastSeen(id string) {

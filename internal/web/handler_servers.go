@@ -37,18 +37,46 @@ func handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	agentURL := strings.TrimRight(strings.TrimSpace(body.URL), "/")
+	if agentURL != "" && !validHTTPURL(agentURL) {
+		jsonErr(w, http.StatusBadRequest, "Agent-URL muss mit http:// oder https:// beginnen")
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if len(name) > 128 {
+		name = name[:128]
+	}
+
 	list := servers.Load()
 	for _, s := range list {
 		if s.Type == "agent" && hmac.Equal([]byte(s.Token), []byte(token)) {
+			// Die URL gilt nur bei der ersten Registrierung sofort. Eine spätere Änderung
+			// muss ein Admin bestätigen – sonst könnte, wer den Token kennt, den Hub samt
+			// Registry-Zugangsdaten auf einen eigenen Server umleiten.
+			changed := agentURL != "" && s.URL != "" && agentURL != s.URL
 			servers.Update(s.ID, func(srv *servers.Server) {
-				if body.URL != "" {
-					srv.URL = strings.TrimRight(body.URL, "/")
+				switch {
+				case agentURL == "":
+				case srv.URL == "":
+					srv.URL = agentURL
+					if strings.HasPrefix(agentURL, "http://") {
+						log.Printf("Agent %s registriert sich unverschlüsselt (%s) – HTTPS empfohlen", srv.Name, agentURL)
+					}
+				case agentURL != srv.URL:
+					srv.PendingURL = agentURL
+				default:
+					srv.PendingURL = ""
 				}
-				if body.Name != "" {
-					srv.Name = body.Name
+				if name != "" {
+					srv.Name = name
 				}
 			})
 			servers.TouchLastSeen(s.ID)
+			if changed {
+				log.Printf("Agent %s meldet neue URL %s – wartet auf Bestätigung durch einen Admin", s.Name, agentURL)
+				jsonErr(w, http.StatusConflict, "Neue Agent-URL muss auf dem Hub von einem Admin bestätigt werden")
+				return
+			}
 			jsonOK(w, map[string]bool{"ok": true})
 			return
 		}
@@ -79,18 +107,27 @@ func handleAgentInvite(w http.ResponseWriter, r *http.Request) {
 		Type:  "agent",
 		Token: token,
 	}
-	servers.Add(srv)
+	if err := servers.Add(srv); err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	jsonOK(w, map[string]interface{}{"ok": true, "id": srv.ID, "token": token})
 }
 
+// handleAgentHubStatus: Die Statusseite des Agents zeigt ohne Anmeldung nur online/offline.
+// Details (eigene URL, Fehlermeldung) gibt es nur mit dem Agent-Token.
 func handleAgentHubStatus(w http.ResponseWriter, r *http.Request) {
-	result := servers.RegisterNow()
-	resp := map[string]interface{}{
-		"online":    result.Online,
-		"agent_url": servers.AgentURL(),
+	if config.LoadMode().Mode != "agent" {
+		jsonErr(w, http.StatusNotFound, "Kein Agent")
+		return
 	}
-	if result.Error != "" {
-		resp["error"] = result.Error
+	result := servers.Status()
+	resp := map[string]interface{}{"online": result.Online}
+	if auth.ValidBearer(r) {
+		resp["agent_url"] = servers.AgentURL()
+		if result.Error != "" {
+			resp["error"] = result.Error
+		}
 	}
 	jsonOK(w, resp)
 }
@@ -127,6 +164,7 @@ func handleServerAdd(w http.ResponseWriter, r *http.Request) {
 		SSHCert    string `json:"ssh_cert"`
 		Token      string `json:"token"`
 		URL        string `json:"url"`
+		HostKey    string `json:"host_key"`
 	}
 	if err := parseJSON(r, &body); err != nil {
 		jsonErr(w, http.StatusBadRequest, "Ungültige Anfrage")
@@ -152,6 +190,10 @@ func handleServerAdd(w http.ResponseWriter, r *http.Request) {
 		}
 		srv.Token = token
 		srv.URL = strings.TrimRight(strings.TrimSpace(body.URL), "/")
+		if srv.URL != "" && !validHTTPURL(srv.URL) {
+			jsonErr(w, http.StatusBadRequest, "URL muss mit http:// oder https:// beginnen")
+			return
+		}
 	} else {
 		host := strings.TrimSpace(body.Host)
 		username := strings.TrimSpace(body.Username)
@@ -183,8 +225,17 @@ func handleServerAdd(w http.ResponseWriter, r *http.Request) {
 			jsonErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if hk := strings.TrimSpace(body.HostKey); hk != "" {
+			if err := servers.PinHostKey(srv.ID, hk); err != nil {
+				jsonErr(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
 	}
-	servers.Add(srv)
+	if err := servers.Add(srv); err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	jsonOK(w, map[string]interface{}{"ok": true, "id": srv.ID})
 }
 
@@ -249,7 +300,10 @@ func handleServerUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	updated := *srv
-	servers.Update(id, func(s *servers.Server) { *s = updated })
+	if err := servers.Update(id, func(s *servers.Server) { *s = updated }); err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	jsonOK(w, map[string]bool{"ok": true})
 }
 
@@ -263,15 +317,58 @@ func handleServerPatch(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "Ungültige Anfrage")
 		return
 	}
-	servers.Update(id, func(s *servers.Server) {
+	// Vom Agent gemeldete neue URL übernehmen ("confirm_url": angezeigte URL) bzw.
+	// verwerfen ("reject_url": true). Die URL muss mitkommen: Hat der Agent inzwischen
+	// eine andere gemeldet, wird nichts übernommen.
+	confirm, _ := body["confirm_url"].(string)
+	reject, _ := body["reject_url"].(bool)
+	stale := false
+	err := servers.Update(id, func(s *servers.Server) {
 		if v, ok := body["name"].(string); ok {
 			if len(v) > 128 {
 				v = v[:128]
 			}
 			s.Name = v
 		}
+		switch {
+		case confirm != "" && confirm == s.PendingURL:
+			s.URL, s.PendingURL = s.PendingURL, ""
+		case confirm != "":
+			stale = true
+		case reject:
+			s.PendingURL = ""
+		}
 	})
+	if err != nil {
+		jsonErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if stale {
+		jsonErr(w, http.StatusConflict, "Der Agent hat inzwischen eine andere URL gemeldet – bitte neu laden und erneut prüfen")
+		return
+	}
 	jsonOK(w, map[string]bool{"ok": true})
+}
+
+// handleServerHostKey liest den SSH-Hostkey, damit der Admin ihn vor dem Speichern prüfen kann.
+func handleServerHostKey(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	var body struct {
+		Host string `json:"host"`
+		Port int    `json:"port"`
+	}
+	if err := parseJSON(r, &body); err != nil || strings.TrimSpace(body.Host) == "" {
+		jsonErr(w, http.StatusBadRequest, "Host erforderlich")
+		return
+	}
+	fp, err := servers.ScanHostKey(strings.TrimSpace(body.Host), body.Port)
+	if err != nil {
+		jsonErr(w, http.StatusBadGateway, "Hostkey nicht lesbar: "+err.Error())
+		return
+	}
+	jsonOK(w, map[string]string{"fingerprint": fp})
 }
 
 func handleServerDelete(w http.ResponseWriter, r *http.Request) {
@@ -367,12 +464,18 @@ func handleServerContainers(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleServerContainerAction(w http.ResponseWriter, r *http.Request) {
-	srv := agentServer(w, r)
-	if srv == nil {
+	vars := mux.Vars(r)
+	if !requireServerPerm(w, r, vars["id"], containerActionPerm(vars["action"])) {
 		return
 	}
-	vars := mux.Vars(r)
-	if !requireServerPerm(w, r, srv.ID, containerActionPerm(vars["action"])) {
+	switch vars["action"] {
+	case "start", "stop", "restart", "update":
+	default:
+		jsonErr(w, http.StatusBadRequest, "Unbekannte Aktion")
+		return
+	}
+	srv := agentServer(w, r)
+	if srv == nil {
 		return
 	}
 	if vars["action"] == "update" {
@@ -380,7 +483,7 @@ func handleServerContainerAction(w http.ResponseWriter, r *http.Request) {
 		syncInsecureRegistriesToAgent(srv)
 		syncRegistryCertsToAgent(srv)
 	}
-	path := "/api/containers/" + vars["cid"] + "/" + vars["action"]
+	path := "/api/containers/" + url.PathEscape(vars["cid"]) + "/" + vars["action"]
 	data, err := servers.AgentPost(srv, path, nil, 120*time.Second)
 	if err != nil {
 		jsonErr(w, http.StatusBadGateway, err.Error())
@@ -454,8 +557,11 @@ func handleServerStackFileGet(w http.ResponseWriter, r *http.Request) {
 	if srv == nil {
 		return
 	}
-	name := mux.Vars(r)["name"]
-	data, err := servers.AgentGet(srv, "/api/stacks/"+name+"/file")
+	name, ok := stackName(w, r)
+	if !ok {
+		return
+	}
+	data, err := servers.AgentGet(srv, "/api/stacks/"+url.PathEscape(name)+"/file")
 	if err != nil {
 		jsonErr(w, http.StatusBadGateway, err.Error())
 		return
@@ -472,10 +578,18 @@ func handleServerStackFilePut(w http.ResponseWriter, r *http.Request) {
 	if srv == nil {
 		return
 	}
-	name := mux.Vars(r)["name"]
-	var body interface{}
-	parseJSON(r, &body)
-	data, err := servers.AgentPut(srv, "/api/stacks/"+name+"/file", body)
+	name, ok := stackName(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := parseJSON(r, &body); err != nil {
+		jsonErr(w, http.StatusBadRequest, "Ungültige Anfrage")
+		return
+	}
+	data, err := servers.AgentPut(srv, "/api/stacks/"+url.PathEscape(name)+"/file", body)
 	if err != nil {
 		jsonErr(w, http.StatusBadGateway, err.Error())
 		return
@@ -527,14 +641,23 @@ func syncRegistryCertsToAgent(srv *servers.Server) {
 }
 
 func handleServerStackAction(w http.ResponseWriter, r *http.Request) {
-	srv := agentServer(w, r)
-	if srv == nil {
+	vars := mux.Vars(r)
+	action := vars["action"]
+	if !requireServerPerm(w, r, vars["id"], stackActionPerm(action)) {
 		return
 	}
-	vars := mux.Vars(r)
-	name := vars["name"]
-	action := vars["action"]
-	if !requireServerPerm(w, r, srv.ID, stackActionPerm(action)) {
+	switch action {
+	case "up", "down", "pull", "logs":
+	default:
+		jsonErr(w, http.StatusBadRequest, "Unbekannte Aktion")
+		return
+	}
+	name, ok := stackName(w, r)
+	if !ok {
+		return
+	}
+	srv := agentServer(w, r)
+	if srv == nil {
 		return
 	}
 	timeout := 120 * time.Second
@@ -544,7 +667,7 @@ func handleServerStackAction(w http.ResponseWriter, r *http.Request) {
 		syncInsecureRegistriesToAgent(srv)
 		syncRegistryCertsToAgent(srv)
 	}
-	data, err := servers.AgentPost(srv, "/api/stacks/"+name+"/"+action, nil, timeout)
+	data, err := servers.AgentPost(srv, "/api/stacks/"+url.PathEscape(name)+"/"+action, nil, timeout)
 	if err != nil {
 		jsonErr(w, http.StatusBadGateway, err.Error())
 		return
@@ -561,8 +684,11 @@ func handleServerStackDelete(w http.ResponseWriter, r *http.Request) {
 	if srv == nil {
 		return
 	}
-	name := mux.Vars(r)["name"]
-	data, err := servers.AgentDelete(srv, "/api/stacks/"+name)
+	name, ok := stackName(w, r)
+	if !ok {
+		return
+	}
+	data, err := servers.AgentDelete(srv, "/api/stacks/"+url.PathEscape(name))
 	if err != nil {
 		jsonErr(w, http.StatusBadGateway, err.Error())
 		return
@@ -621,4 +747,26 @@ func handleServerImageDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(data)
+}
+
+// handleServerStackImport lädt die Compose-Datei auf dem Hub (Tokens verlassen den Hub nicht)
+// und legt sie auf dem Agent als neuen Stack ab.
+func handleServerStackImport(w http.ResponseWriter, r *http.Request) {
+	if !requireServerPerm(w, r, mux.Vars(r)["id"], users.PermStacksEdit) {
+		return
+	}
+	srv := agentServer(w, r)
+	if srv == nil {
+		return
+	}
+	name, content, ok := stackImportRequest(w, r)
+	if !ok {
+		return
+	}
+	body := map[string]string{"content": content}
+	if _, err := servers.AgentPut(srv, "/api/stacks/"+url.PathEscape(name)+"/file", body); err != nil {
+		jsonErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	jsonOK(w, map[string]bool{"ok": true})
 }

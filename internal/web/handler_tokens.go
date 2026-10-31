@@ -13,12 +13,7 @@ func handleTokensList(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
 		return
 	}
-	tokens := config.LoadTokens()
-	names := make([]string, 0, len(tokens))
-	for k := range tokens {
-		names = append(names, k)
-	}
-	jsonOK(w, names)
+	jsonOK(w, config.TokenNames())
 }
 
 func handleTokenSave(w http.ResponseWriter, r *http.Request) {
@@ -42,9 +37,7 @@ func handleTokenSave(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "Token-Wert darf nicht leer sein")
 		return
 	}
-	tokens := config.LoadTokens()
-	tokens[name] = value
-	if err := config.SaveTokens(tokens); err != nil {
+	if err := config.SetToken(name, value); err != nil {
 		jsonErr(w, http.StatusInternalServerError, "Speichern fehlgeschlagen")
 		return
 	}
@@ -56,14 +49,13 @@ func handleTokenDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := mux.Vars(r)["name"]
-	tokens := config.LoadTokens()
-	if _, ok := tokens[name]; !ok {
-		jsonErr(w, http.StatusNotFound, "Token nicht gefunden")
+	found, err := config.DeleteToken(name)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "Speichern fehlgeschlagen")
 		return
 	}
-	delete(tokens, name)
-	if err := config.SaveTokens(tokens); err != nil {
-		jsonErr(w, http.StatusInternalServerError, "Speichern fehlgeschlagen")
+	if !found {
+		jsonErr(w, http.StatusNotFound, "Token nicht gefunden")
 		return
 	}
 	jsonOK(w, map[string]bool{"ok": true})

@@ -24,56 +24,66 @@ func RandomToken() string {
 }
 
 // MakeToken creates a signed, time-stamped session token for the given user:
-// base64url(username).timestamp.hmac
-func MakeToken(username string) string {
+// base64url(username).timestamp.sessionNonce.hmac
+// Die Nonce macht Abmelden und Passwortwechsel serverseitig wirksam.
+func MakeToken(u users.User) string {
 	creds, _ := config.LoadCreds()
-	u := base64.RawURLEncoding.EncodeToString([]byte(username))
+	name := base64.RawURLEncoding.EncodeToString([]byte(u.Username))
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	return fmt.Sprintf("%s.%s.%s", u, ts, sign(creds.Secret, u, ts))
+	return fmt.Sprintf("%s.%s.%s.%s", name, ts, u.SessionNonce, sign(creds.Secret, name, ts, u.SessionNonce))
 }
 
-func sign(secret, u, ts string) string {
+func sign(secret string, parts ...string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(u + "." + ts))
+	mac.Write([]byte(strings.Join(parts, ".")))
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-// tokenUser validates a session token and returns the username it was issued for.
-func tokenUser(token string) (string, bool) {
+// tokenUser validates a session token and returns the username and session nonce it was issued for.
+func tokenUser(token string) (string, string, bool) {
 	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return "", false
+	if len(parts) != 4 {
+		return "", "", false
 	}
-	u, ts, sig := parts[0], parts[1], parts[2]
+	u, ts, nonce, sig := parts[0], parts[1], parts[2], parts[3]
 	creds, _ := config.LoadCreds()
-	if !hmac.Equal([]byte(sig), []byte(sign(creds.Secret, u, ts))) {
-		return "", false
+	if !hmac.Equal([]byte(sig), []byte(sign(creds.Secret, u, ts, nonce))) {
+		return "", "", false
 	}
 	t, err := strconv.ParseInt(ts, 10, 64)
 	if err != nil || time.Now().Unix()-t >= int64(config.SessionTTL) {
-		return "", false
+		return "", "", false
 	}
 	name, err := base64.RawURLEncoding.DecodeString(u)
 	if err != nil {
-		return "", false
+		return "", "", false
 	}
-	return string(name), true
+	return string(name), nonce, true
 }
 
 // SessionUser returns the logged-in user of the request's session cookie,
 // or nil if there is no valid session or the user no longer exists.
+// Im Agent-Modus gibt es keine Anmeldung, dort zählt nur der Bearer-Token des Hubs.
 func SessionUser(r *http.Request) *users.User {
 	cookie, err := r.Cookie(config.CookieName)
 	if err != nil {
 		return nil
 	}
-	name, ok := tokenUser(cookie.Value)
+	if config.LoadMode().Mode == "agent" {
+		return nil
+	}
+	name, nonce, ok := tokenUser(cookie.Value)
 	if !ok {
 		return nil
 	}
-	return users.Get(name)
+	u := users.Get(name)
+	if u == nil || !hmac.Equal([]byte(u.SessionNonce), []byte(nonce)) {
+		return nil
+	}
+	return u
 }
 
+// ValidBearer prüft den Agent-Token. Er gilt nur auf einem Agent (Hub → Agent).
 func ValidBearer(r *http.Request) bool {
 	authHdr := r.Header.Get("Authorization")
 	if !strings.HasPrefix(authHdr, "Bearer ") {
@@ -81,7 +91,7 @@ func ValidBearer(r *http.Request) bool {
 	}
 	token := authHdr[7:]
 	m := config.LoadMode()
-	if m.AgentToken == "" {
+	if m.Mode != "agent" || m.AgentToken == "" {
 		return false
 	}
 	return hmac.Equal([]byte(token), []byte(m.AgentToken))
@@ -110,9 +120,12 @@ func SetSessionCookie(w http.ResponseWriter, token string) {
 
 func ClearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
-		Name:   config.CookieName,
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
+		Name:     config.CookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   config.CookieSecure,
+		SameSite: http.SameSiteLaxMode,
 	})
 }

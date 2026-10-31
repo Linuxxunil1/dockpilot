@@ -5,32 +5,39 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 )
 
 var (
-	StacksDir               = env("STACKS_DIR", "/opt/dockpilot/stacks")
-	DataDir                 = env("DATA_DIR", "/data")
-	CredsFile               = filepath.Join(DataDir, "credentials.json")
-	UsersFile               = filepath.Join(DataDir, "users.json")
-	GroupsFile              = filepath.Join(DataDir, "groups.json")
-	ModeFile                = filepath.Join(DataDir, "mode.json")
-	ServersFile             = filepath.Join(DataDir, "servers.json")
-	TokensFile              = filepath.Join(DataDir, "tokens.json")
-	DockerCfgDir            = filepath.Join(DataDir, "docker")
-	InsecureRegistriesFile  = filepath.Join(DataDir, "insecure_registries.json")
-	KnownHostsFile          = filepath.Join(DataDir, "known_hosts.json")
-	SecretFile              = filepath.Join(DataDir, "secret_key")
-	CertsDir                = filepath.Join(DataDir, "certs")
-	DaemonConfigFile        = env("DOCKER_DAEMON_CONFIG", "/etc/docker/daemon.json")
-	SessionTTL              = 7 * 24 * 3600 // seconds
-	CookieName              = "dockpilot_session"
-	CookieSecure            = os.Getenv("COOKIE_SECURE") != "false"
+	StacksDir              = env("STACKS_DIR", "/opt/dockpilot/stacks")
+	DataDir                = env("DATA_DIR", "/data")
+	CredsFile              = filepath.Join(DataDir, "credentials.json")
+	UsersFile              = filepath.Join(DataDir, "users.json")
+	GroupsFile             = filepath.Join(DataDir, "groups.json")
+	ModeFile               = filepath.Join(DataDir, "mode.json")
+	ServersFile            = filepath.Join(DataDir, "servers.json")
+	TokensFile             = filepath.Join(DataDir, "tokens.json")
+	DockerCfgDir           = filepath.Join(DataDir, "docker")
+	InsecureRegistriesFile = filepath.Join(DataDir, "insecure_registries.json")
+	KnownHostsFile         = filepath.Join(DataDir, "known_hosts.json")
+	SecretFile             = filepath.Join(DataDir, "secret_key")
+	CertsDir               = filepath.Join(DataDir, "certs")
+	DaemonConfigFile       = env("DOCKER_DAEMON_CONFIG", "/etc/docker/daemon.json")
+	SessionTTL             = 7 * 24 * 3600 // seconds
+	CookieName             = "dockpilot_session"
+	CookieSecure           = os.Getenv("COOKIE_SECURE") != "false"
+	// Optional: eigenes TLS statt Reverse Proxy.
+	TLSCert = os.Getenv("TLS_CERT")
+	TLSKey  = os.Getenv("TLS_KEY")
+	// Optional: CA (PEM) für Hub bzw. Agents mit selbst signiertem HTTPS-Zertifikat.
+	AgentCAFile = os.Getenv("AGENT_CA_FILE")
 )
 
 func env(key, fallback string) string {
@@ -58,17 +65,19 @@ func LoadCreds() (Credentials, error) {
 			return c, nil
 		}
 	}
-	return Credentials{
-		User:     env("DASH_USER", "admin"),
-		Password: env("DASH_PASSWORD", "changeme"),
-		Secret:   secret,
-	}, nil
+	// Keine Standard-Zugangsdaten: Fehlt die Datei, muss die Ersteinrichtung laufen.
+	return Credentials{Secret: secret}, nil
 }
 
 func SaveCreds(c Credentials) error {
-	os.MkdirAll(DataDir, 0700)
 	data, _ := json.MarshalIndent(c, "", "  ")
-	return os.WriteFile(CredsFile, data, 0600)
+	return WriteFileAtomic(CredsFile, data, 0600)
+}
+
+func randomHex(n int) string {
+	b := make([]byte, n)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 func loadSecret() string {
@@ -79,21 +88,23 @@ func loadSecret() string {
 	if data, err := os.ReadFile(SecretFile); err == nil {
 		return string(data)
 	}
-	os.MkdirAll(DataDir, 0700)
-	b := make([]byte, 32)
-	rand.Read(b)
-	secret := hex.EncodeToString(b)
-	os.WriteFile(SecretFile, []byte(secret), 0600)
+	secret := randomHex(32)
+	WriteFileAtomic(SecretFile, []byte(secret), 0600)
 	return secret
 }
 
 // Mode configuration.
 type Mode struct {
-	Mode       string `json:"mode"`                  // standalone | hub | agent
+	Mode       string `json:"mode"` // standalone | hub | agent
 	HubURL     string `json:"hub_url,omitempty"`
 	AgentToken string `json:"agent_token,omitempty"`
 	AgentName  string `json:"agent_name,omitempty"`
 	AgentURL   string `json:"agent_url,omitempty"`
+}
+
+// Public enthält alles außer dem Agent-Token.
+func (m Mode) Public() map[string]string {
+	return map[string]string{"mode": m.Mode, "hub_url": m.HubURL, "agent_name": m.AgentName, "agent_url": m.AgentURL}
 }
 
 func LoadMode() Mode {
@@ -107,9 +118,8 @@ func LoadMode() Mode {
 }
 
 func SaveMode(m Mode) error {
-	os.MkdirAll(DataDir, 0700)
 	data, _ := json.MarshalIndent(m, "", "  ")
-	return os.WriteFile(ModeFile, data, 0600)
+	return WriteFileAtomic(ModeFile, data, 0600)
 }
 
 func NeedsSetup() bool {
@@ -132,20 +142,78 @@ func NeedsSetup() bool {
 }
 
 // Tokens for stack imports.
-func LoadTokens() map[string]string {
-	if data, err := os.ReadFile(TokensFile); err == nil {
-		var t map[string]string
-		if json.Unmarshal(data, &t) == nil {
-			return t
-		}
+var tokensMu sync.Mutex
+
+// loadTokens liest tokens.json. Ist die Datei kaputt, gibt es einen Fehler statt
+// einer leeren Liste, damit sie beim nächsten Speichern nicht überschrieben wird.
+func loadTokens() (map[string]string, error) {
+	t := map[string]string{}
+	data, err := os.ReadFile(TokensFile)
+	if os.IsNotExist(err) {
+		return t, nil
 	}
-	return map[string]string{}
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(data, &t); err != nil {
+		return nil, err
+	}
+	if t == nil {
+		t = map[string]string{}
+	}
+	return t, nil
 }
 
-func SaveTokens(t map[string]string) error {
-	os.MkdirAll(DataDir, 0700)
+func saveTokens(t map[string]string) error {
 	data, _ := json.Marshal(t)
-	return os.WriteFile(TokensFile, data, 0600)
+	return WriteFileAtomic(TokensFile, data, 0600)
+}
+
+// TokenNames listet die Namen der gespeicherten Import-Tokens, sortiert.
+func TokenNames() []string {
+	tokensMu.Lock()
+	defer tokensMu.Unlock()
+	t, _ := loadTokens()
+	names := make([]string, 0, len(t))
+	for k := range t {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func TokenValue(name string) (string, bool) {
+	tokensMu.Lock()
+	defer tokensMu.Unlock()
+	t, _ := loadTokens()
+	v, ok := t[name]
+	return v, ok
+}
+
+func SetToken(name, value string) error {
+	tokensMu.Lock()
+	defer tokensMu.Unlock()
+	t, err := loadTokens()
+	if err != nil {
+		return err
+	}
+	t[name] = value
+	return saveTokens(t)
+}
+
+// DeleteToken meldet false, wenn es den Token nicht gab.
+func DeleteToken(name string) (bool, error) {
+	tokensMu.Lock()
+	defer tokensMu.Unlock()
+	t, err := loadTokens()
+	if err != nil {
+		return false, err
+	}
+	if _, ok := t[name]; !ok {
+		return false, nil
+	}
+	delete(t, name)
+	return true, saveTokens(t)
 }
 
 // Docker config.json helpers for registry auth (used for stack pulls).
@@ -168,10 +236,12 @@ func loadDockerCfg() dockerConfig {
 	return dockerConfig{Auths: map[string]dockerAuth{}}
 }
 
+// dockerCfgMu schützt das Lesen-Ändern-Schreiben von config.json.
+var dockerCfgMu sync.Mutex
+
 func saveDockerCfg(c dockerConfig) error {
-	os.MkdirAll(DockerCfgDir, 0700)
 	data, _ := json.MarshalIndent(c, "", "  ")
-	return os.WriteFile(filepath.Join(DockerCfgDir, "config.json"), data, 0600)
+	return WriteFileAtomic(filepath.Join(DockerCfgDir, "config.json"), data, 0600)
 }
 
 // DockerCfgRaw returns the raw bytes of the Docker config.json for syncing to agents.
@@ -192,6 +262,8 @@ func MergeDockerCfg(incoming []byte) error {
 	if err := json.Unmarshal(incoming, &hub); err != nil {
 		return err
 	}
+	dockerCfgMu.Lock()
+	defer dockerCfgMu.Unlock()
 
 	// Our credential store
 	existing := loadDockerCfg()
@@ -224,9 +296,8 @@ func mergeIntoDir(incoming dockerConfig, dir string) {
 	for k, v := range incoming.Auths {
 		existing.Auths[k] = v
 	}
-	os.MkdirAll(dir, 0700)
 	if data, err := json.MarshalIndent(existing, "", "  "); err == nil {
-		if err := os.WriteFile(cfgFile, data, 0600); err != nil {
+		if err := WriteFileAtomic(cfgFile, data, 0600); err != nil {
 			log.Printf("config: %s schreiben: %v", cfgFile, err)
 		}
 	}
@@ -276,6 +347,8 @@ func normalizeRegistry(registry string) string {
 // for Docker Hub, or "registry.host:port" for a custom registry).
 func WriteAuthToDockercfg(registry, username, password string) error {
 	token := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+	dockerCfgMu.Lock()
+	defer dockerCfgMu.Unlock()
 	cfg := loadDockerCfg()
 	if cfg.Auths == nil {
 		cfg.Auths = map[string]dockerAuth{}
@@ -349,6 +422,8 @@ func authHeaderFromToken(serverAddress, authToken string) string {
 func AddRegistry(registry, username, password string) error {
 	registry = normalizeRegistry(registry)
 	token := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+	dockerCfgMu.Lock()
+	defer dockerCfgMu.Unlock()
 	cfg := loadDockerCfg()
 	if cfg.Auths == nil {
 		cfg.Auths = map[string]dockerAuth{}
@@ -359,11 +434,12 @@ func AddRegistry(registry, username, password string) error {
 
 func RemoveRegistry(registry string) error {
 	registry = normalizeRegistry(registry)
+	dockerCfgMu.Lock()
+	defer dockerCfgMu.Unlock()
 	cfg := loadDockerCfg()
 	delete(cfg.Auths, registry)
 	return saveDockerCfg(cfg)
 }
-
 
 // RegistryCredentials liefert Benutzer und Passwort aus dem Docker-Config-Store
 // für die Registry, aus der imageRef stammt.
@@ -393,15 +469,23 @@ func InsecureRegistries() []string {
 	return list
 }
 
+var insecureMu sync.Mutex
+
 func saveInsecureRegistries(list []string) error {
-	os.MkdirAll(DataDir, 0700)
 	data, _ := json.Marshal(list)
-	return os.WriteFile(InsecureRegistriesFile, data, 0600)
+	return WriteFileAtomic(InsecureRegistriesFile, data, 0600)
 }
 
 // SetInsecureRegistries replaces the insecure registry list and applies it to daemon.json.
 // Used by agents to accept the hub's full list in one call.
 func SetInsecureRegistries(list []string) error {
+	for _, r := range list {
+		if !ValidRegistryHost(r) {
+			return fmt.Errorf("ungültige Registry-Adresse: %q", r)
+		}
+	}
+	insecureMu.Lock()
+	defer insecureMu.Unlock()
 	if err := saveInsecureRegistries(list); err != nil {
 		return err
 	}
@@ -410,6 +494,12 @@ func SetInsecureRegistries(list []string) error {
 
 // AddInsecureRegistry adds a registry to the insecure list and applies it to daemon.json.
 func AddInsecureRegistry(registry string) error {
+	registry = normalizeRegistry(registry)
+	if !ValidRegistryHost(registry) {
+		return fmt.Errorf("ungültige Registry-Adresse (erwartet: host oder host:port)")
+	}
+	insecureMu.Lock()
+	defer insecureMu.Unlock()
 	list := InsecureRegistries()
 	for _, r := range list {
 		if r == registry {
@@ -425,6 +515,8 @@ func AddInsecureRegistry(registry string) error {
 
 // RemoveInsecureRegistry removes a registry from the insecure list and applies it to daemon.json.
 func RemoveInsecureRegistry(registry string) error {
+	insecureMu.Lock()
+	defer insecureMu.Unlock()
 	list := InsecureRegistries()
 	var filtered []string
 	for _, r := range list {

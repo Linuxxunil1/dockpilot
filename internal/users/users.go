@@ -1,6 +1,8 @@
 package users
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -23,6 +25,10 @@ type User struct {
 	Role         string `json:"role"`
 	// Groups enthält Gruppen-IDs. nil heißt: Daten von vor den Gruppen, siehe load.
 	Groups []string `json:"groups"`
+	// SessionNonce steckt signiert im Session-Cookie. Ein neuer Wert macht alle Sitzungen
+	// ungültig – zufällig statt Zähler, damit ein gleichnamig neu angelegter Benutzer
+	// keine alten Cookies erbt.
+	SessionNonce string `json:"session_nonce,omitempty"`
 }
 
 func (u User) IsAdmin() bool { return u.Role == RoleAdmin }
@@ -38,17 +44,22 @@ var (
 	ErrBadName    = errors.New("Benutzername ungültig (1–64 Zeichen, keine Leerzeichen)")
 	ErrBadRole    = errors.New("Ungültige Rolle")
 	ErrShortPass  = errors.New("Passwort muss mindestens 8 Zeichen haben")
+	ErrCorrupt    = errors.New("Benutzerdatei unlesbar – bitte users.json prüfen")
 	errNoMigrated = errors.New("keine Altdaten")
 )
 
 // load liest users.json. Fehlt die Datei, werden die alten Einzel-Zugangsdaten
-// aus credentials.json als Admin übernommen. Aufrufer muss mu halten.
-func load() []User {
+// aus credentials.json als Admin übernommen. Ist die Datei unlesbar, gibt es ErrCorrupt,
+// damit sie weder überschrieben wird noch die Ersteinrichtung wieder aufgeht. Aufrufer muss mu halten.
+func load() ([]User, error) {
 	data, err := os.ReadFile(config.UsersFile)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, ErrCorrupt
+	}
 	if err == nil {
 		var list []User
 		if json.Unmarshal(data, &list) != nil {
-			return nil
+			return nil, ErrCorrupt
 		}
 		// Bestehende Benutzer behalten über die Gruppe "Standard" ihre bisherigen Rechte.
 		for i := range list {
@@ -59,12 +70,12 @@ func load() []User {
 				}
 			}
 		}
-		return list
+		return list, nil
 	}
 	if list, err := migrateLegacy(); err == nil {
-		return list
+		return list, nil
 	}
-	return nil
+	return nil, nil
 }
 
 func migrateLegacy() ([]User, error) {
@@ -90,9 +101,8 @@ func migrateLegacy() ([]User, error) {
 }
 
 func save(list []User) error {
-	os.MkdirAll(config.DataDir, 0700)
 	data, _ := json.MarshalIndent(list, "", "  ")
-	return os.WriteFile(config.UsersFile, data, 0600)
+	return config.WriteFileAtomic(config.UsersFile, data, 0600)
 }
 
 func adminCount(list []User) int {
@@ -115,11 +125,18 @@ func validRole(role string) bool { return role == RoleAdmin || role == RoleUser 
 func List() []User {
 	mu.Lock()
 	defer mu.Unlock()
-	return load()
+	list, _ := load()
+	return list
 }
 
-// Any meldet, ob mindestens ein Benutzer existiert.
-func Any() bool { return len(List()) > 0 }
+// Any meldet, ob mindestens ein Benutzer existiert. Eine vorhandene, aber
+// unlesbare users.json zählt als "ja", damit die Ersteinrichtung zu bleibt.
+func Any() bool {
+	if _, err := os.Stat(config.UsersFile); err == nil {
+		return true
+	}
+	return len(List()) > 0
+}
 
 func Get(name string) *User {
 	for _, u := range List() {
@@ -163,7 +180,10 @@ func Create(name, password, role string, groups []string) error {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	list := load()
+	list, err := load()
+	if err != nil {
+		return err
+	}
 	for _, u := range list {
 		if u.Username == name {
 			return ErrExists
@@ -172,7 +192,7 @@ func Create(name, password, role string, groups []string) error {
 	if groups == nil {
 		groups = []string{}
 	}
-	return save(append(list, User{Username: name, PasswordHash: string(hash), Role: role, Groups: groups}))
+	return save(append(list, User{Username: name, PasswordHash: string(hash), Role: role, Groups: groups, SessionNonce: newNonce()}))
 }
 
 func SetPassword(name, password string) error {
@@ -185,14 +205,25 @@ func SetPassword(name, password string) error {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	list := load()
+	list, err := load()
+	if err != nil {
+		return err
+	}
 	for i := range list {
 		if list[i].Username == name {
 			list[i].PasswordHash = string(hash)
+			// Neues Passwort beendet alle bestehenden Sitzungen.
+			list[i].SessionNonce = newNonce()
 			return save(list)
 		}
 	}
 	return ErrNotFound
+}
+
+func newNonce() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 func SetRole(name, role string) error {
@@ -201,7 +232,10 @@ func SetRole(name, role string) error {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	list := load()
+	list, err := load()
+	if err != nil {
+		return err
+	}
 	for i := range list {
 		if list[i].Username == name {
 			if list[i].IsAdmin() && role != RoleAdmin && adminCount(list) == 1 {
@@ -217,7 +251,10 @@ func SetRole(name, role string) error {
 func Delete(name string) error {
 	mu.Lock()
 	defer mu.Unlock()
-	list := load()
+	list, err := load()
+	if err != nil {
+		return err
+	}
 	for i, u := range list {
 		if u.Username == name {
 			if u.IsAdmin() && adminCount(list) == 1 {
@@ -243,10 +280,30 @@ func SetGroups(name string, groups []string) error {
 			clean = append(clean, id)
 		}
 	}
-	list := load()
+	list, err := load()
+	if err != nil {
+		return err
+	}
 	for i := range list {
 		if list[i].Username == name {
 			list[i].Groups = clean
+			return save(list)
+		}
+	}
+	return ErrNotFound
+}
+
+// EndSessions macht alle Sitzungen des Benutzers ungültig (Abmelden auf allen Geräten).
+func EndSessions(name string) error {
+	mu.Lock()
+	defer mu.Unlock()
+	list, err := load()
+	if err != nil {
+		return err
+	}
+	for i := range list {
+		if list[i].Username == name {
+			list[i].SessionNonce = newNonce()
 			return save(list)
 		}
 	}

@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: ["main"]
 
+# Standardmäßig keine Rechte; jeder Job bekommt nur, was er braucht.
+permissions: {}
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
@@ -18,10 +21,12 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
 
@@ -34,6 +39,16 @@ jobs:
       - name: Test
         run: go test ./...
 
+      # Bricht bei jeder aufgerufenen Schwachstelle ab, außer bei den bewusst
+      # akzeptierten: GO-2026-4887 und GO-2026-4883 betreffen den Docker-Daemon
+      # (AuthZ-/Plugin-Prüfung), nicht den hier genutzten Client, und haben keinen Fix.
+      - name: Vulnerability check
+        run: |
+          go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -format json ./... > vuln.json
+          jq -r 'select(.finding) | select(.finding.trace[0].function) | .finding.osv' vuln.json > found.txt
+          sort -u found.txt | { grep -vxF -e GO-2026-4887 -e GO-2026-4883 || [ $? -eq 1 ]; } > called.txt
+          if [ -s called.txt ]; then echo "Aufgerufene Schwachstellen:"; cat called.txt; exit 1; fi
+
   # ── Image bauen und nach ghcr.io pushen (nur main) ─────────────────────────
   build-and-push:
     needs: go-check
@@ -44,7 +59,9 @@ jobs:
       packages: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       # Versions-Tags aus internal/version/VERSION (z. B. 0.2.0 → 0.2.0 und 0.2)
       - name: Read version
@@ -55,18 +72,18 @@ jobs:
           echo "major_minor=$(echo "$VERSION" | grep -oE '^[0-9]+\.[0-9]+')" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
@@ -75,12 +92,12 @@ jobs:
             type=raw,value=${{ steps.version.outputs.major_minor }},enable=${{ steps.version.outputs.major_minor != '' }}
 
       - name: Build and push
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           push: true
-          provenance: false
-          sbom: false
+          provenance: mode=max
+          sbom: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

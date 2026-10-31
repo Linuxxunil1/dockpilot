@@ -185,11 +185,18 @@ func insecure(host string) bool {
 
 func listTags(ref, host, repo string) ([]string, error) {
 	// Hinterlegte Registry-CA und Client-Zertifikat (certs.d) verwenden wie der Docker-Daemon.
-	// Als HTTP-Registry eingetragene Registries haben oft selbst signierte Zertifikate.
-	tlsCfg := &tls.Config{RootCAs: regcerts.Pool(host), Certificates: regcerts.ClientCertificates(host), InsecureSkipVerify: insecure(host)}
+	// Als HTTP-Registry eingetragene Registries haben oft selbst signierte Zertifikate; nur für
+	// diese ist die Prüfung abgeschaltet (wie bei dockerd mit insecure-registries).
+	skipVerify := insecure(host)
+	tlsCfg := &tls.Config{RootCAs: regcerts.Pool(host), Certificates: regcerts.ClientCertificates(host), InsecureSkipVerify: skipVerify}
 	client := &http.Client{Timeout: 20 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsCfg}}
 	tagsURL := "https://" + host + "/v2/" + repo + "/tags/list?n=1000"
 	user, pass, hasCreds := config.RegistryCredentials(ref)
+	// Zugangsdaten nur über geprüftes HTTPS: Bei abgeschalteter Prüfung oder HTTP
+	// könnte sie jeder im Netz mitlesen oder mit einer gefälschten Antwort abfragen.
+	if skipVerify {
+		hasCreds = false
+	}
 
 	resp, err := client.Get(tagsURL)
 	if err != nil && insecure(host) {
@@ -253,6 +260,10 @@ func fetchToken(client *http.Client, challenge, repo, user, pass string, hasCred
 		q.Set("service", params["service"])
 	}
 	q.Set("scope", "repository:"+repo+":pull")
+	// Der Token-Dienst steht in der Antwort der Registry; Zugangsdaten nur an HTTPS-Adressen.
+	if !strings.HasPrefix(params["realm"], "https://") {
+		hasCreds = false
+	}
 	req, err := http.NewRequest("GET", params["realm"]+"?"+q.Encode(), nil)
 	if err != nil {
 		return "", err

@@ -71,6 +71,7 @@ func handleUserUpdate(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
 		return
 	}
+	me := auth.SessionUser(r)
 	name := mux.Vars(r)["name"]
 	var body struct {
 		Password string    `json:"password"`
@@ -101,6 +102,12 @@ func handleUserUpdate(w http.ResponseWriter, r *http.Request) {
 		if err := users.SetPassword(name, body.Password); err != nil {
 			jsonErr(w, userErrStatus(err), err.Error())
 			return
+		}
+		// Eigenes Passwort geändert: diese Sitzung mit neuem Cookie behalten, alle anderen sind beendet.
+		if me != nil && me.Username == name {
+			if nu := users.Get(name); nu != nil {
+				auth.SetSessionCookie(w, auth.MakeToken(*nu))
+			}
 		}
 	}
 	jsonOK(w, map[string]bool{"ok": true})

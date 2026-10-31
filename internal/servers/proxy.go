@@ -2,11 +2,17 @@ package servers
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"os"
 	"time"
+
+	"dockpilot/internal/config"
 )
 
 // AgentDo proxies a request from hub to an agent server.
@@ -34,14 +40,50 @@ func AgentDo(s *Server, method, path string, body interface{}, timeout time.Dura
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	client := &http.Client{Timeout: timeout}
+	client := &http.Client{Timeout: timeout, Transport: agentTransport}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, 502, fmt.Errorf("agent nicht erreichbar: %w", err)
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxAgentResponse+1))
+	if err != nil {
+		return nil, 502, fmt.Errorf("agent-antwort unvollständig: %w", err)
+	}
+	if len(data) > maxAgentResponse {
+		return nil, 502, fmt.Errorf("agent-antwort zu groß")
+	}
 	return data, resp.StatusCode, nil
+}
+
+// maxAgentResponse schützt den Hub vor übergroßen Antworten eines Agents.
+const maxAgentResponse = 32 << 20
+
+var agentTransport = &http.Transport{
+	Proxy:               http.ProxyFromEnvironment,
+	TLSClientConfig:     AgentTLSConfig(),
+	TLSHandshakeTimeout: 10 * time.Second,
+	IdleConnTimeout:     90 * time.Second,
+}
+
+// AgentTLSConfig vertraut den System-CAs und zusätzlich AGENT_CA_FILE
+// (für Hub bzw. Agents mit selbst signiertem HTTPS-Zertifikat).
+func AgentTLSConfig() *tls.Config {
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	if config.AgentCAFile == "" {
+		return cfg
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	pem, err := os.ReadFile(config.AgentCAFile)
+	if err != nil || !pool.AppendCertsFromPEM(pem) {
+		log.Printf("AGENT_CA_FILE %s nicht lesbar oder ohne Zertifikat – nur System-CAs", config.AgentCAFile)
+		return cfg
+	}
+	cfg.RootCAs = pool
+	return cfg
 }
 
 // AgentJSON proxies and decodes JSON response.

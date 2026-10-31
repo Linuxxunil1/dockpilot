@@ -232,6 +232,9 @@ func Fetch(registry string) (Fetched, error) {
 	if err != nil {
 		host, port = reg, "443"
 	}
+	// Absichtlich ohne Prüfung: Hier wird das (oft selbst signierte) Zertifikat erst gelesen,
+	// damit der Admin es anhand des Fingerprints prüfen und hinterlegen kann. Es werden keine
+	// Daten gesendet; ob die Kette schon vertrauenswürdig ist, steht getrennt in Trusted.
 	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", net.JoinHostPort(host, port),
 		&tls.Config{ServerName: host, InsecureSkipVerify: true})
 	if err != nil {

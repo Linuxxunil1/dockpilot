@@ -2,9 +2,12 @@ package servers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -96,30 +99,39 @@ var knownMu sync.Mutex
 
 type knownHosts map[string]string // "host:port" -> base64 key
 
-func loadKnownHosts() knownHosts {
+// loadKnownHosts: Eine unlesbare Datei ergibt einen Fehler. Sonst würden alle
+// gepinnten Hostkeys beim nächsten Verbinden still durch TOFU ersetzt.
+func loadKnownHosts() (knownHosts, error) {
 	data, err := os.ReadFile(config.KnownHostsFile)
+	if os.IsNotExist(err) {
+		return knownHosts{}, nil
+	}
 	if err != nil {
-		return knownHosts{}
+		return nil, err
 	}
 	var kh knownHosts
-	json.Unmarshal(data, &kh)
-	if kh == nil {
-		return knownHosts{}
+	if err := json.Unmarshal(data, &kh); err != nil {
+		return nil, fmt.Errorf("known_hosts.json unlesbar: %w", err)
 	}
-	return kh
+	if kh == nil {
+		kh = knownHosts{}
+	}
+	return kh, nil
 }
 
 func saveKnownHosts(kh knownHosts) {
-	os.MkdirAll(config.DataDir, 0700)
 	data, _ := json.Marshal(kh)
-	os.WriteFile(config.KnownHostsFile, data, 0600)
+	config.WriteFileAtomic(config.KnownHostsFile, data, 0600)
 }
 
 func tofuCallback(serverID string) ssh.HostKeyCallback {
 	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		knownMu.Lock()
 		defer knownMu.Unlock()
-		kh := loadKnownHosts()
+		kh, err := loadKnownHosts()
+		if err != nil {
+			return err
+		}
 		fingerprint := ssh.FingerprintSHA256(key)
 		if existing, ok := kh[serverID]; ok {
 			if existing != fingerprint {
@@ -136,7 +148,53 @@ func tofuCallback(serverID string) ssh.HostKeyCallback {
 func ResetKnownHost(serverID string) {
 	knownMu.Lock()
 	defer knownMu.Unlock()
-	kh := loadKnownHosts()
+	kh, err := loadKnownHosts()
+	if err != nil {
+		return
+	}
 	delete(kh, serverID)
 	saveKnownHosts(kh)
+}
+
+// errScanned bricht den Verbindungsaufbau nach dem Hostkey ab, noch vor der Anmeldung.
+var errScanned = errors.New("hostkey gelesen")
+
+// ScanHostKey liest den Fingerprint (SHA256) des SSH-Servers, ohne Zugangsdaten zu senden.
+// Der Admin vergleicht ihn mit dem Server (ssh-keygen -lf /etc/ssh/ssh_host_*_key.pub).
+func ScanHostKey(host string, p int) (string, error) {
+	var fp string
+	cfg := &ssh.ClientConfig{
+		User: "dockpilot-scan",
+		HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
+			fp = ssh.FingerprintSHA256(key)
+			return errScanned
+		},
+		Timeout: 10 * time.Second,
+	}
+	_, err := ssh.Dial("tcp", net.JoinHostPort(host, strconv.Itoa(port(p))), cfg)
+	if fp != "" {
+		return fp, nil
+	}
+	if err == nil {
+		err = errors.New("kein Hostkey erhalten")
+	}
+	return "", err
+}
+
+// PinHostKey hinterlegt einen vom Admin bestätigten Fingerprint. Damit entfällt
+// "trust on first use", und schon die erste Anmeldung geht nur an den echten Server.
+func PinHostKey(serverID, fingerprint string) error {
+	fingerprint = strings.TrimSpace(fingerprint)
+	if !strings.HasPrefix(fingerprint, "SHA256:") || len(fingerprint) < 20 {
+		return errors.New("Fingerprint im Format SHA256:… erwartet")
+	}
+	knownMu.Lock()
+	defer knownMu.Unlock()
+	kh, err := loadKnownHosts()
+	if err != nil {
+		return err
+	}
+	kh[serverID] = fingerprint
+	saveKnownHosts(kh)
+	return nil
 }

@@ -42,65 +42,80 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,
   Dieser Server ist als Agent eingerichtet. Das vollständige Dashboard ist auf dem Hub-Server verfügbar.
 </div>
 <details style="margin-top:1.25rem;text-align:left">
-  <summary style="cursor:pointer;font-size:.8rem;color:#a5abc4;user-select:none;padding:.25rem 0">⚙ Konfiguration bearbeiten</summary>
+  <summary style="cursor:pointer;font-size:.8rem;color:#a5abc4;user-select:none;padding:.25rem 0">⚙ Konfiguration anzeigen und bearbeiten</summary>
   <div style="margin-top:.75rem;display:flex;flex-direction:column;gap:.5rem">
-    <input id="edit-hub-url" type="text" placeholder="Hub-URL (http://192.168.x.x:8880)" style="background:#1b2036;border:1px solid #252b45;color:#e7e9f3;border-radius:6px;padding:.4rem .6rem;font-size:.82rem;width:100%">
-    <input id="edit-agent-url" type="text" placeholder="Eigene URL (http://192.168.x.x:8080)" style="background:#1b2036;border:1px solid #252b45;color:#e7e9f3;border-radius:6px;padding:.4rem .6rem;font-size:.82rem;width:100%">
-    <input id="edit-token" type="text" placeholder="Agent-Token (vom Hub)" style="background:#1b2036;border:1px solid #252b45;color:#e7e9f3;border-radius:6px;padding:.4rem .6rem;font-family:monospace;font-size:.82rem;width:100%">
-    <input id="edit-name" type="text" placeholder="Agent-Name (optional)" style="background:#1b2036;border:1px solid #252b45;color:#e7e9f3;border-radius:6px;padding:.4rem .6rem;font-size:.82rem;width:100%">
-    <div style="display:flex;gap:.5rem;align-items:center;margin-top:.25rem">
-      <button onclick="saveAgentConfig()" style="background:#6e66d6;color:#fff;border:none;border-radius:7px;padding:.4rem .9rem;font-size:.8rem;cursor:pointer">Speichern & neu laden</button>
-      <span id="edit-status" style="font-size:.75rem;color:#a5abc4"></span>
+    <label for="cur-token" style="font-size:.75rem;color:#a5abc4">Aktueller Agent-Token (zum Anzeigen und Ändern nötig)</label>
+    <div style="display:flex;gap:.5rem">
+      <input id="cur-token" type="password" autocomplete="off" style="flex:1;background:#1b2036;border:1px solid #252b45;color:#e7e9f3;border-radius:6px;padding:.4rem .6rem;font-family:monospace;font-size:.82rem">
+      <button onclick="unlock()" style="background:#1b2036;color:#e7e9f3;border:1px solid #252b45;border-radius:7px;padding:.4rem .9rem;font-size:.8rem;cursor:pointer">Anzeigen</button>
     </div>
+    <div id="edit-fields" style="display:none;flex-direction:column;gap:.5rem">
+      <label for="edit-hub-url" style="font-size:.75rem;color:#a5abc4">Hub-URL</label>
+      <input id="edit-hub-url" type="text" placeholder="https://hub.example.com" style="background:#1b2036;border:1px solid #252b45;color:#e7e9f3;border-radius:6px;padding:.4rem .6rem;font-size:.82rem;width:100%">
+      <label for="edit-agent-url" style="font-size:.75rem;color:#a5abc4">Eigene URL</label>
+      <input id="edit-agent-url" type="text" placeholder="https://agent.example.com:8080" style="background:#1b2036;border:1px solid #252b45;color:#e7e9f3;border-radius:6px;padding:.4rem .6rem;font-size:.82rem;width:100%">
+      <label for="edit-token" style="font-size:.75rem;color:#a5abc4">Neuer Agent-Token (leer = unverändert)</label>
+      <input id="edit-token" type="text" autocomplete="off" style="background:#1b2036;border:1px solid #252b45;color:#e7e9f3;border-radius:6px;padding:.4rem .6rem;font-family:monospace;font-size:.82rem;width:100%">
+      <label for="edit-name" style="font-size:.75rem;color:#a5abc4">Agent-Name</label>
+      <input id="edit-name" type="text" style="background:#1b2036;border:1px solid #252b45;color:#e7e9f3;border-radius:6px;padding:.4rem .6rem;font-size:.82rem;width:100%">
+      <div style="display:flex;gap:.5rem;align-items:center;margin-top:.25rem">
+        <button onclick="saveAgentConfig()" style="background:#6e66d6;color:#fff;border:none;border-radius:7px;padding:.4rem .9rem;font-size:.8rem;cursor:pointer">Speichern & neu laden</button>
+      </div>
+    </div>
+    <span id="edit-status" role="status" style="font-size:.75rem;color:#a5abc4"></span>
   </div>
 </details>
 </div>
 <script>
-async function loadStatus(){
+// Ohne Agent-Token zeigt die Seite nur, ob der Hub erreichbar ist.
+const $=id=>document.getElementById(id);
+const authHdr=()=>({'Authorization':'Bearer '+$('cur-token').value.trim()});
+function setStatus(t,bad){const st=$('edit-status');st.textContent=t;st.style.color=bad?'#ec6b6a':'#a5abc4';}
+async function unlock(){
+  if(!$('cur-token').value.trim()){setStatus('Token eingeben',true);return}
   try{
-    const r=await fetch('/api/setup/mode');
-    if(!r.ok)return;
+    const r=await fetch('/api/setup/mode',{headers:authHdr()});
+    if(!r.ok){setStatus(r.status===401?'Token falsch':'Fehler beim Laden',true);return}
     const j=await r.json();
-    document.getElementById('hub-url').textContent=j.hub_url||'–';
-    document.getElementById('agent-name').textContent=j.agent_name||'–';
-    if(j.hub_url)document.getElementById('edit-hub-url').value=j.hub_url;
-    if(j.agent_url)document.getElementById('edit-agent-url').value=j.agent_url;
-    if(j.agent_name)document.getElementById('edit-name').value=j.agent_name;
-  }catch(e){}
+    $('hub-url').textContent=j.hub_url||'–';
+    $('agent-name').textContent=j.agent_name||'–';
+    $('edit-hub-url').value=j.hub_url||'';
+    $('edit-agent-url').value=j.agent_url||'';
+    $('edit-name').value=j.agent_name||'';
+    $('edit-fields').style.display='flex';
+    setStatus('');
+    checkHubStatus();
+  }catch(e){setStatus('Netzwerkfehler',true)}
 }
 async function saveAgentConfig(){
-  const hub_url=document.getElementById('edit-hub-url').value.trim();
-  const agent_url=document.getElementById('edit-agent-url').value.trim();
-  const agent_token=document.getElementById('edit-token').value.trim();
-  const agent_name=document.getElementById('edit-name').value.trim();
-  const st=document.getElementById('edit-status');
-  if(!hub_url){st.textContent='Hub-URL erforderlich';st.style.color='#ec6b6a';return;}
+  const hub_url=$('edit-hub-url').value.trim();
+  const agent_url=$('edit-agent-url').value.trim();
+  const agent_token=$('edit-token').value.trim();
+  const agent_name=$('edit-name').value.trim();
+  if(!hub_url){setStatus('Hub-URL erforderlich',true);return}
   try{
-    const r=await fetch('/api/setup/mode',{method:'POST',headers:{'Content-Type':'application/json'},
+    const r=await fetch('/api/setup/mode',{method:'POST',headers:{'Content-Type':'application/json',...authHdr()},
       body:JSON.stringify({mode:'agent',hub_url,agent_url,agent_token,agent_name})});
-    if(r.ok){st.textContent='Gespeichert – lade neu…';st.style.color='#46c486';setTimeout(()=>location.reload(),1500);}
-    else{const j=await r.json().catch(()=>({}));st.textContent=j.detail||'Fehler';st.style.color='#ec6b6a';}
-  }catch(e){st.textContent='Netzwerkfehler';st.style.color='#ec6b6a';}
+    if(r.ok){setStatus('Gespeichert – lade neu…');setTimeout(()=>location.reload(),1500);}
+    else{const j=await r.json().catch(()=>({}));setStatus(j.detail||'Fehler',true);}
+  }catch(e){setStatus('Netzwerkfehler',true)}
 }
 async function checkHubStatus(){
-  const el=document.getElementById('hub-status');
-  const errEl=document.getElementById('hub-error');
-  const urlEl=document.getElementById('agent-url');
+  const el=$('hub-status'),errEl=$('hub-error'),urlEl=$('agent-url');
+  const tok=$('cur-token').value.trim();
   try{
-    const r=await fetch('/api/agent/hub-status');
+    const r=await fetch('/api/agent/hub-status',{headers:tok?authHdr():{}});
     const j=await r.json();
-    if(urlEl)urlEl.textContent=j.agent_url||'Nicht gesetzt';
+    if('agent_url' in j){urlEl.textContent=j.agent_url||'Nicht gesetzt';urlEl.style.color=j.agent_url?'':'#ec6b6a';}
     if(j.online){
       el.textContent='Online';el.className='val ok';el.style.color='';
-      if(errEl)errEl.style.display='none';
+      errEl.style.display='none';
     }else{
       el.textContent='Offline';el.className='val';el.style.color='#ec6b6a';
-      if(errEl&&j.error){errEl.textContent='Fehler: '+j.error;errEl.style.display='';}
-      if(!j.agent_url&&urlEl)urlEl.style.color='#ec6b6a';
+      if(j.error){errEl.textContent='Fehler: '+j.error;errEl.style.display='';}
     }
   }catch(e){el.textContent='Fehler';el.style.color='#ec6b6a';}
 }
-loadStatus();
 checkHubStatus();
 setInterval(checkHubStatus,30000);
 </script></body></html>

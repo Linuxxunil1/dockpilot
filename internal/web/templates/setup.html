@@ -29,31 +29,19 @@ input:focus{outline:none;border-color:#8f88e6;box-shadow:0 0 0 3px rgba(127,119,
   font-size:.95rem;cursor:pointer;transition:filter .15s,transform .1s}
 .btn:hover{filter:brightness(1.12)}
 .btn:active{transform:scale(.98)}
+a.btn{display:block;text-align:center;text-decoration:none}
 .btn:disabled{opacity:.4;cursor:not-allowed;filter:none}
 .err{color:#ec6b6a;font-size:.82rem;margin-top:.75rem;min-height:1rem}
-.cert-box{margin-top:1.25rem;background:#090b13;border:1px solid #252b45;border-radius:10px;padding:1.1rem}
-.cert-box .pw{font-family:monospace;font-size:.88rem;background:#090b13;padding:.4rem .7rem;
-  border-radius:6px;color:#8f88e6;display:inline-block;margin:.4rem 0;user-select:text}
-.dl{display:flex;gap:.6rem;margin-top:.75rem}
-.dl a{flex:1;padding:.55rem;border-radius:8px;text-align:center;font-size:.82rem;font-weight:600;
-  text-decoration:none;color:#fff;background:#6e66d6;transition:filter .15s}
-.dl a:hover{filter:brightness(1.12)}
-.dl a.green{background:#2f9e6a}
-.note{font-size:.75rem;color:#6c7391;margin-top:.75rem;line-height:1.6}
-.note code{background:#090b13;padding:.1rem .4rem;border-radius:4px;color:#8f88e6;font-size:.8rem}
-.skip{text-align:center;margin-top:.85rem}
-.skip a{font-size:.82rem;color:#6c7391;cursor:pointer;text-decoration:underline}
-.skip a:hover{color:#a5abc4}
 .done-icon{text-align:center;font-size:3rem;margin-bottom:.75rem}
 /* Mode selection */
 .mode-cards{display:flex;flex-direction:column;gap:.6rem;margin:.5rem 0 .25rem}
-.mode-card{border:2px solid #252b45;border-radius:12px;padding:.85rem 1rem;cursor:pointer;
+.mode-card{width:100%;background:none;color:inherit;font:inherit;text-align:left;border:2px solid #252b45;border-radius:12px;padding:.85rem 1rem;cursor:pointer;
   transition:border-color .2s,background .2s;display:flex;align-items:flex-start;gap:.75rem}
 .mode-card:hover{border-color:#363e60}
 .mode-card.selected{border-color:#8f88e6;background:rgba(127,119,221,.07)}
 .mode-icon{font-size:1.4rem;line-height:1;flex-shrink:0;margin-top:.1rem}
-.mode-title{font-size:.88rem;font-weight:700;color:#e7e9f3;margin-bottom:.18rem}
-.mode-desc{font-size:.76rem;color:#a5abc4;line-height:1.45}
+.mode-title{display:block;font-size:.88rem;font-weight:700;color:#e7e9f3;margin-bottom:.18rem}
+.mode-desc{display:block;font-size:.76rem;color:#a5abc4;line-height:1.45}
 /* Agent done info box */
 .info-box{background:#090b13;border:1px solid #252b45;border-radius:10px;padding:.9rem 1rem;margin-top:.75rem}
 .info-box ol{margin:.4rem 0 0;padding-left:1.2rem;font-size:.8rem;color:#a5abc4;line-height:1.8}
@@ -69,28 +57,30 @@ input:focus{outline:none;border-color:#8f88e6;box-shadow:0 0 0 3px rgba(127,119,
   <h2>Installationsmodus</h2>
   <p>Wie soll dieser dockpilot-Server betrieben werden?</p>
   <div class="mode-cards">
-    <div class="mode-card" id="mc-standalone" onclick="selectMode('standalone')">
-      <div class="mode-icon">🖥️</div>
-      <div>
-        <div class="mode-title">Standalone</div>
-        <div class="mode-desc">Einzelserver — verwalte nur diesen Host. Die einfachste Installation.</div>
-      </div>
-    </div>
-    <div class="mode-card" id="mc-hub" onclick="selectMode('hub')">
-      <div class="mode-icon">🌐</div>
-      <div>
-        <div class="mode-title">Hub (Hauptserver)</div>
-        <div class="mode-desc">Zentrales Dashboard — verwalte diesen und weitere Remote-Server.</div>
-      </div>
-    </div>
-    <div class="mode-card" id="mc-agent" onclick="selectMode('agent')">
-      <div class="mode-icon">🔌</div>
-      <div>
-        <div class="mode-title">Agent (Client)</div>
-        <div class="mode-desc">Wird vom Hub gesteuert — kein eigenes Dashboard, verbindet sich automatisch.</div>
-      </div>
-    </div>
+    <button type="button" class="mode-card" id="mc-standalone" aria-pressed="false" onclick="selectMode('standalone')">
+      <span class="mode-icon" aria-hidden="true">🖥️</span>
+      <span>
+        <span class="mode-title">Standalone</span>
+        <span class="mode-desc">Einzelserver — verwalte nur diesen Host. Die einfachste Installation.</span>
+      </span>
+    </button>
+    <button type="button" class="mode-card" id="mc-hub" aria-pressed="false" onclick="selectMode('hub')">
+      <span class="mode-icon" aria-hidden="true">🌐</span>
+      <span>
+        <span class="mode-title">Hub (Hauptserver)</span>
+        <span class="mode-desc">Zentrales Dashboard — verwalte diesen und weitere Remote-Server.</span>
+      </span>
+    </button>
+    <button type="button" class="mode-card" id="mc-agent" aria-pressed="false" onclick="selectMode('agent')">
+      <span class="mode-icon" aria-hidden="true">🔌</span>
+      <span>
+        <span class="mode-title">Agent (Client)</span>
+        <span class="mode-desc">Wird vom Hub gesteuert — kein eigenes Dashboard, verbindet sich automatisch.</span>
+      </span>
+    </button>
   </div>
+  <label for="setup-code">Setup-Code</label>
+  <input type="text" id="setup-code" autocomplete="off" spellcheck="false" placeholder="steht im Log: docker logs dockpilot" style="font-family:monospace">
   <button class="btn" id="mode-next-btn" onclick="modeNext()" disabled>Weiter →</button>
   <div class="err" id="err-mode"></div>
 </div>
@@ -99,37 +89,14 @@ input:focus{outline:none;border-color:#8f88e6;box-shadow:0 0 0 3px rgba(127,119,
 <div class="card" id="panel-creds" style="display:none">
   <h2>Zugangsdaten festlegen</h2>
   <p>Wähle einen Benutzernamen und ein sicheres Passwort für den Login.</p>
-  <label>Benutzername</label>
+  <label for="su-user">Benutzername</label>
   <input type="text" id="su-user" value="admin" autocomplete="username">
-  <label>Passwort</label>
+  <label for="su-pass">Passwort</label>
   <input type="password" id="su-pass" autocomplete="new-password" placeholder="min. 8 Zeichen">
-  <label>Passwort wiederholen</label>
+  <label for="su-pass2">Passwort wiederholen</label>
   <input type="password" id="su-pass2" autocomplete="new-password">
   <button class="btn" onclick="saveCredentials()">Weiter →</button>
   <div class="err" id="err1"></div>
-</div>
-
-<!-- Panel 2a: mTLS-Zertifikat (Standalone / Hub) -->
-<div class="card" id="panel-mtls" style="display:none">
-  <h2>mTLS-Zertifikat <span style="font-size:.72rem;background:rgba(127,119,221,.12);border:1px solid rgba(127,119,221,.2);padding:.1rem .5rem;border-radius:5px;color:#8f88e6;font-weight:500;vertical-align:middle">optional</span></h2>
-  <p>Schütze deinen Zugang mit einem Browser-Zertifikat. Ohne gültiges Zertifikat kommt niemand zur Login-Seite — auch mit gestohlenen Zugangsdaten nicht.</p>
-  <button class="btn" id="gen-btn" onclick="generateCert()">Zertifikat generieren</button>
-  <div class="cert-box" id="cert-result" style="display:none">
-    <div style="font-size:.78rem;color:#a5abc4;margin-bottom:.3rem">Zertifikat erstellt — alles herunterladen:</div>
-    <div>P12-Passwort: <span class="pw" id="p12-pw"></span></div>
-    <div class="dl">
-      <a href="/api/setup/download/client.p12" download class="green" id="dl-p12" onclick="markDownloaded()">↓ client.p12</a>
-      <a href="/api/setup/download/ca.crt" download>↓ ca.crt</a>
-    </div>
-    <div id="dl-hint" style="font-size:.75rem;color:#f59e0b;margin-top:.5rem">⬆ client.p12 herunterladen um fortzufahren</div>
-    <div class="note" style="margin-top:.85rem">
-      <strong style="color:#e7e9f3">Nächste Schritte:</strong><br>
-      1. <code>client.p12</code> im Browser / OS importieren<br>
-      2. <code>ca.crt</code> in deinen Reverse Proxy (nginx, Caddy …) einbinden und Client-Auth aktivieren
-    </div>
-  </div>
-  <button class="btn" id="finish-btn" onclick="advancePanel()" style="margin-top:.85rem" disabled>Abschließen →</button>
-  <div class="skip"><a onclick="advancePanel()">Diesen Schritt überspringen</a></div>
 </div>
 
 <!-- Panel 3a: Fertig (Standalone / Hub) -->
@@ -137,7 +104,7 @@ input:focus{outline:none;border-color:#8f88e6;box-shadow:0 0 0 3px rgba(127,119,
   <div class="done-icon">✓</div>
   <h2 style="text-align:center">Setup abgeschlossen</h2>
   <p style="text-align:center">Zugangsdaten gespeichert. Du kannst dich jetzt einloggen.</p>
-  <a href="/login"><button class="btn">Zum Login →</button></a>
+  <a class="btn" href="/login">Zum Login →</a>
 </div>
 
 <!-- Panel 1b: Hub-Verbindung (Agent) -->
@@ -145,11 +112,11 @@ input:focus{outline:none;border-color:#8f88e6;box-shadow:0 0 0 3px rgba(127,119,
   <h2>Hub-Verbindung einrichten</h2>
   <p>Gib die URL des Hub-Servers und den dort generierten Token ein.<br>
      Den Token erhältst du auf dem Hub unter <strong style="color:#e7e9f3">Server → Agent einladen</strong>.</p>
-  <label>Hub-URL</label>
+  <label for="ag-hub-url">Hub-URL</label>
   <input type="text" id="ag-hub-url" placeholder="https://dockpilot.example.com">
-  <label>Agent-Token</label>
+  <label for="ag-token">Agent-Token</label>
   <input type="text" id="ag-token" placeholder="Token vom Hub einfügen" style="user-select:text;font-family:monospace;font-size:.82rem">
-  <label>Agent-Name <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+  <label for="ag-name">Agent-Name <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
   <input type="text" id="ag-name" placeholder="mein-server-02">
   <button class="btn" onclick="saveAgentMode()">Verbinden →</button>
   <div class="err" id="err-agent"></div>
@@ -169,15 +136,15 @@ input:focus{outline:none;border-color:#8f88e6;box-shadow:0 0 0 3px rgba(127,119,
       <li>Agent erscheint nach dem ersten Verbindungsversuch (bis zu 30 Sek.)</li>
     </ol>
   </div>
-  <a href="/"><button class="btn" style="margin-top:1.25rem">Fertig →</button></a>
+  <a class="btn" href="/" style="margin-top:1.25rem">Fertig →</a>
 </div>
 
 </div>
 <script>
 let selectedMode=null;
 const FLOWS={
-  standalone:['panel-mode','panel-creds','panel-mtls','panel-done-normal'],
-  hub:       ['panel-mode','panel-creds','panel-mtls','panel-done-normal'],
+  standalone:['panel-mode','panel-creds','panel-done-normal'],
+  hub:       ['panel-mode','panel-creds','panel-done-normal'],
   agent:     ['panel-mode','panel-agent','panel-done-agent'],
 };
 let curFlow=FLOWS.standalone, curIdx=0;
@@ -195,7 +162,7 @@ function renderIndicators(total,active){
 
 function showPanel(idx){
   curIdx=idx;
-  const all=['panel-mode','panel-creds','panel-mtls','panel-done-normal','panel-agent','panel-done-agent'];
+  const all=['panel-mode','panel-creds','panel-done-normal','panel-agent','panel-done-agent'];
   all.forEach(id=>{const e=document.getElementById(id);if(e)e.style.display='none';});
   if(idx<curFlow.length){
     document.getElementById(curFlow[idx]).style.display='';
@@ -205,20 +172,24 @@ function showPanel(idx){
 
 function selectMode(m){
   selectedMode=m;
-  ['standalone','hub','agent'].forEach(x=>document.getElementById('mc-'+x).classList.toggle('selected',x===m));
+  ['standalone','hub','agent'].forEach(x=>{const c=document.getElementById('mc-'+x);c.classList.toggle('selected',x===m);c.setAttribute('aria-pressed',x===m)});
   document.getElementById('mode-next-btn').disabled=false;
   renderIndicators(FLOWS[m].length,0);
 }
+
+// Der Setup-Code aus dem Container-Log schützt die Ersteinrichtung vor Fremden im Netz.
+const setupHeaders=()=>({'Content-Type':'application/json','X-Setup-Token':document.getElementById('setup-code').value.trim()});
 
 async function modeNext(){
   if(!selectedMode)return;
   curFlow=FLOWS[selectedMode];
   const err=document.getElementById('err-mode');
   err.textContent='';
+  if(!document.getElementById('setup-code').value.trim()){err.textContent='Setup-Code eingeben (steht im Log des Containers).';return}
   if(selectedMode!=='agent'){
     try{
       const r=await fetch('/api/setup/mode',{method:'POST',
-        headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:selectedMode})});
+        headers:setupHeaders(),body:JSON.stringify({mode:selectedMode})});
       if(!r.ok){const j=await r.json().catch(()=>({}));err.textContent=j.detail||'Fehler';return}
     }catch(e){err.textContent='Netzwerkfehler: '+e.message;return}
   }
@@ -236,7 +207,7 @@ async function saveCredentials(){
   err.textContent='';
   try{
     const r=await fetch('/api/setup/credentials',{method:'POST',
-      headers:{'Content-Type':'application/json'},body:JSON.stringify({user,password:pass})});
+      headers:setupHeaders(),body:JSON.stringify({user,password:pass})});
     if(r.ok){showPanel(2)}
     else{const j=await r.json().catch(()=>({}));err.textContent=j.detail||'Fehler'}
   }catch(e){err.textContent='Netzwerkfehler: '+e.message}
@@ -252,31 +223,13 @@ async function saveAgentMode(){
   err.textContent='';
   try{
     const r=await fetch('/api/setup/mode',{method:'POST',
-      headers:{'Content-Type':'application/json'},
+      headers:setupHeaders(),
       body:JSON.stringify({mode:'agent',hub_url:hubUrl,agent_token:token,agent_name:name})});
     if(r.ok){showPanel(2)}
     else{const j=await r.json().catch(()=>({}));err.textContent=j.detail||'Fehler'}
   }catch(e){err.textContent='Netzwerkfehler: '+e.message}
 }
 
-async function generateCert(){
-  const btn=document.getElementById('gen-btn');
-  btn.disabled=true;btn.textContent='⟳ Generiere…';
-  try{
-    const r=await fetch('/api/setup/generate-cert',{method:'POST'});
-    if(r.ok){
-      const j=await r.json();
-      document.getElementById('p12-pw').textContent=j.p12_password;
-      document.getElementById('cert-result').style.display='';
-      btn.style.display='none';
-    }else{btn.disabled=false;btn.textContent='Erneut versuchen'}
-  }catch(e){btn.disabled=false;btn.textContent='Fehler: '+e.message}
-}
-function markDownloaded(){
-  document.getElementById('finish-btn').disabled=false;
-  document.getElementById('dl-hint').style.display='none';
-}
-function advancePanel(){showPanel(curIdx+1)}
 
 // Init — show mode selector
 renderIndicators(3,0);

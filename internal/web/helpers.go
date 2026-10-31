@@ -5,7 +5,10 @@ import (
 	"net/http"
 	"regexp"
 
+	"github.com/gorilla/mux"
+
 	"dockpilot/internal/auth"
+	"dockpilot/internal/docker"
 	"dockpilot/internal/users"
 )
 
@@ -111,6 +114,16 @@ func requireAuthAny(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	return true
+}
+
+// stackName liest den Stack-Namen aus der URL und lehnt alles ab, was kein einfacher Name ist.
+func stackName(w http.ResponseWriter, r *http.Request) (string, bool) {
+	name := mux.Vars(r)["name"]
+	if !docker.ValidStackName(name) {
+		jsonErr(w, http.StatusBadRequest, "Ungültiger Stack-Name")
+		return "", false
+	}
+	return name, true
 }
 
 func htmlPage(w http.ResponseWriter, body string) {

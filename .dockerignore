@@ -1,0 +1,10 @@
+# Nur Quellcode in den Build-Kontext – keine Git-Historie, lokalen Daten oder Geheimnisse.
+.git
+.github
+.claude
+.env
+certs/
+docker-compose.yaml
+dockpilot
+dockpilot.exe
+*.md

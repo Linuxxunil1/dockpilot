@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"dockpilot/internal/config"
@@ -21,12 +22,16 @@ func AgentURL() string {
 	return strings.TrimRight(m.AgentURL, "/")
 }
 
+// StartAgentRegistrationLoop läuft immer. Im Agent-Modus meldet er sich alle 60 s beim Hub,
+// sonst tut er nichts. So greift ein erst über die Oberfläche eingerichteter Agent ohne Neustart.
 func StartAgentRegistrationLoop() {
 	go func() {
 		time.Sleep(5 * time.Second)
 		for {
-			if err := registerWithHub(); err != nil {
-				log.Printf("Agent registration failed: %v", err)
+			if config.LoadMode().Mode == "agent" {
+				if res := RegisterNow(); res.Error != "" {
+					log.Printf("Agent registration failed: %s", res.Error)
+				}
 			}
 			time.Sleep(60 * time.Second)
 		}
@@ -38,12 +43,38 @@ type RegisterResult struct {
 	Error  string
 }
 
+var (
+	statusMu   sync.Mutex
+	lastStatus RegisterResult
+	lastCheck  time.Time
+)
+
 // RegisterNow registers once with the hub and returns the result.
 func RegisterNow() RegisterResult {
+	res := RegisterResult{Online: true}
 	if err := registerWithHub(); err != nil {
-		return RegisterResult{Online: false, Error: err.Error()}
+		res = RegisterResult{Online: false, Error: err.Error()}
 	}
-	return RegisterResult{Online: true}
+	statusMu.Lock()
+	lastStatus, lastCheck = res, time.Now()
+	statusMu.Unlock()
+	return res
+}
+
+// Status liefert das letzte Ergebnis. Ist es älter als 15 s, wird neu geprüft –
+// so löst die (öffentliche) Statusseite höchstens alle 15 s eine Anfrage an den Hub aus.
+func Status() RegisterResult {
+	statusMu.Lock()
+	fresh := time.Since(lastCheck) < 15*time.Second
+	res := lastStatus
+	if !fresh {
+		lastCheck = time.Now() // parallele Aufrufe warten nicht, sondern sehen den alten Stand
+	}
+	statusMu.Unlock()
+	if fresh {
+		return res
+	}
+	return RegisterNow()
 }
 
 func registerWithHub() error {
@@ -65,7 +96,7 @@ func registerWithHub() error {
 	}
 	req.Header.Set("Authorization", "Bearer "+m.AgentToken)
 	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 10 * time.Second, Transport: agentTransport}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err

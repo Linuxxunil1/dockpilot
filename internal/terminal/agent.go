@@ -4,8 +4,11 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
+
+	"dockpilot/internal/servers"
 )
 
 // ServeAgentProxy verbindet die Browser-WebSocket mit dem WebSocket-Endpunkt path
@@ -15,7 +18,8 @@ func ServeAgentProxy(w http.ResponseWriter, r *http.Request, agentURL, agentToke
 	wsURL = strings.Replace(wsURL, "http://", "ws://", 1) + path
 
 	hdr := http.Header{"Authorization": {"Bearer " + agentToken}}
-	agent, resp, err := websocket.DefaultDialer.Dial(wsURL, hdr)
+	dialer := websocket.Dialer{HandshakeTimeout: 15 * time.Second, TLSClientConfig: servers.AgentTLSConfig()}
+	agentRaw, resp, err := dialer.Dial(wsURL, hdr)
 	if err != nil {
 		log.Printf("terminal/agent: dial %s: %v", wsURL, err)
 		reason := "Agent nicht erreichbar"
@@ -24,14 +28,15 @@ func ServeAgentProxy(w http.ResponseWriter, r *http.Request, agentURL, agentToke
 		} else if resp != nil {
 			reason = "Agent lehnt ab: " + resp.Status
 		}
-		if browser, uerr := upgrader.Upgrade(w, r, nil); uerr == nil {
+		if browser, uerr := upgrade(w, r); uerr == nil {
 			closeConn(browser, reason)
 		}
 		return
 	}
+	agent := wrap(agentRaw)
 	defer agent.Close()
 
-	browser, err := upgrader.Upgrade(w, r, nil)
+	browser, err := upgrade(w, r)
 	if err != nil {
 		log.Printf("terminal/agent: browser upgrade: %v", err)
 		return
@@ -39,7 +44,7 @@ func ServeAgentProxy(w http.ResponseWriter, r *http.Request, agentURL, agentToke
 	defer browser.Close()
 
 	done := make(chan string, 2)
-	pipe := func(from, to *websocket.Conn) {
+	pipe := func(from, to *safeConn) {
 		for {
 			mt, msg, err := from.ReadMessage()
 			if err != nil {

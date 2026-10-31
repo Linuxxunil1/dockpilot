@@ -3,13 +3,17 @@ package docker
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"syscall"
 	"time"
 
 	"dockpilot/internal/config"
@@ -21,6 +25,11 @@ type StackInfo struct {
 }
 
 var safeStackName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
+
+var errBadStackName = errors.New("Ungültiger Stack-Name")
+
+// ValidStackName lässt nur Namen zu, die weder Pfade noch URL-Sonderzeichen enthalten.
+func ValidStackName(name string) bool { return safeStackName.MatchString(name) }
 
 func StackDir(name string) string {
 	return filepath.Join(config.StacksDir, name)
@@ -49,6 +58,9 @@ func ListStacks() ([]StackInfo, error) {
 }
 
 func ReadStackFile(name string) (string, error) {
+	if !ValidStackName(name) {
+		return "", errBadStackName
+	}
 	cf := filepath.Join(StackDir(name), "docker-compose.yaml")
 	data, err := os.ReadFile(cf)
 	if err != nil {
@@ -58,12 +70,19 @@ func ReadStackFile(name string) (string, error) {
 }
 
 func WriteStackFile(name, content string) error {
+	if !ValidStackName(name) {
+		return errBadStackName
+	}
 	d := StackDir(name)
-	os.MkdirAll(d, 0755)
-	return os.WriteFile(filepath.Join(d, "docker-compose.yaml"), []byte(content), 0644)
+	// Compose-Dateien enthalten oft Passwörter, deshalb nur für root lesbar.
+	os.MkdirAll(d, 0700)
+	return os.WriteFile(filepath.Join(d, "docker-compose.yaml"), []byte(content), 0600)
 }
 
 func DeleteStack(name string) error {
+	if !ValidStackName(name) {
+		return errBadStackName
+	}
 	d := StackDir(name)
 	if _, err := os.Stat(d); os.IsNotExist(err) {
 		return fmt.Errorf("stack not found")
@@ -77,6 +96,9 @@ type ComposeResult struct {
 }
 
 func RunCompose(name string, timeout time.Duration, args ...string) ComposeResult {
+	if !ValidStackName(name) {
+		return ComposeResult{OK: false, Out: errBadStackName.Error()}
+	}
 	dir := StackDir(name)
 	cf := filepath.Join(dir, "docker-compose.yaml")
 	cmdArgs := append([]string{"compose", "-f", cf}, args...)
@@ -107,32 +129,110 @@ func RunCompose(name string, timeout time.Duration, args ...string) ComposeResul
 	return ComposeResult{OK: err == nil, Out: out}
 }
 
-// ImportStack downloads a docker-compose.yaml from rawURL and saves it as a new stack.
-// token is an optional Bearer token value (not a name).
-func ImportStack(name, rawURL, token string) error {
-	if !safeStackName.MatchString(name) {
-		return fmt.Errorf("invalid stack name")
+// FetchStack lädt eine Compose-Datei per http(s). token ist optional (Bearer-Wert, kein Name)
+// und wird nur über HTTPS gesendet. Ziele auf localhost, Link-Local (z. B. Cloud-Metadaten)
+// und Multicast sind immer gesperrt, private Netze nur mit allowPrivate (Admins).
+// Die Prüfung läuft auf die aufgelöste IP, also auch nach Weiterleitungen und DNS-Tricks.
+func FetchStack(rawURL, token string, allowPrivate bool) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", errors.New("URL muss mit http:// oder https:// beginnen")
 	}
-	client := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequest("GET", rawURL, nil)
+	if token != "" && u.Scheme != "https" {
+		return "", errors.New("Tokens werden nur über https:// gesendet")
+	}
+	dialer := &net.Dialer{
+		Timeout: 10 * time.Second,
+		Control: func(_, address string, _ syscall.RawConn) error {
+			return checkImportTarget(address, allowPrivate)
+		},
+	}
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			DialContext:         dialer.DialContext,
+			TLSHandshakeTimeout: 10 * time.Second,
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return errors.New("zu viele Weiterleitungen")
+			}
+			if req.URL.Scheme != "https" && (token != "" || req.URL.Scheme != "http") {
+				return errors.New("Weiterleitung auf unsicheres Ziel abgelehnt")
+			}
+			return nil
+		},
+	}
+	req, err := http.NewRequest("GET", u.String(), nil)
 	if err != nil {
-		return err
+		return "", err
 	}
 	req.Header.Set("User-Agent", "dockpilot/2.0")
 	if token != "" {
+		// Go entfernt Authorization bei Weiterleitungen auf einen anderen Host selbst.
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 5<<20))
 	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func checkImportTarget(address string, allowPrivate bool) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
 		return err
 	}
-	return WriteStackFile(name, string(data))
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return fmt.Errorf("ungültige Zieladresse %s", host)
+	}
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() || reservedNet(ip) {
+		return fmt.Errorf("Ziel %s ist für Importe gesperrt", ip)
+	}
+	if (ip.IsPrivate() || internalNet(ip)) && !allowPrivate {
+		return fmt.Errorf("Import aus dem internen Netz (%s) nur für Admins", ip)
+	}
+	return nil
 }
+
+func mustCIDRs(list ...string) []*net.IPNet {
+	out := make([]*net.IPNet, 0, len(list))
+	for _, c := range list {
+		_, n, err := net.ParseCIDR(c)
+		if err != nil {
+			panic(err)
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+var (
+	// Nie ein sinnvolles Importziel: IETF-Protokoll, Benchmark, Broadcast, Doku-Netze.
+	reservedNets = mustCIDRs("192.0.0.0/24", "198.18.0.0/15", "255.255.255.255/32",
+		"192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24", "2001:db8::/32")
+	// Wie private Netze behandeln: CGNAT (z. B. Tailscale) und NAT64.
+	internalNets = mustCIDRs("100.64.0.0/10", "64:ff9b::/96", "64:ff9b:1::/48")
+)
+
+func inNets(ip net.IP, nets []*net.IPNet) bool {
+	for _, n := range nets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func reservedNet(ip net.IP) bool { return inNets(ip, reservedNets) }
+func internalNet(ip net.IP) bool { return inNets(ip, internalNets) }
