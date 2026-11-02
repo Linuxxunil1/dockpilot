@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	dtypes "github.com/docker/docker/api/types"
+	"github.com/moby/moby/client"
 )
 
 type DiskInfo struct {
@@ -65,29 +65,17 @@ func GetHostStats() HostStats {
 func dockerDiskInfo() *DockerInfo {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
-	du, err := CLI.DiskUsage(ctx, dtypes.DiskUsageOptions{})
+	du, err := CLI.DiskUsage(ctx, client.DiskUsageOptions{Containers: true, Images: true, Volumes: true, BuildCache: true})
 	if err != nil {
 		return nil
 	}
-	info := &DockerInfo{}
-	for _, img := range du.Images {
-		info.Images += img.Size
-		info.ImagesCount++
+	return &DockerInfo{
+		Images:      du.Images.TotalSize,
+		ImagesCount: int(du.Images.TotalCount),
+		Containers:  du.Containers.TotalSize,
+		Volumes:     du.Volumes.TotalSize,
+		BuildCache:  du.BuildCache.TotalSize,
 	}
-	for _, c := range du.Containers {
-		info.Containers += c.SizeRw
-	}
-	for _, v := range du.Volumes {
-		if v.UsageData != nil {
-			info.Volumes += v.UsageData.Size
-		}
-	}
-	for _, b := range du.BuildCache {
-		if !b.Shared {
-			info.BuildCache += b.Size
-		}
-	}
-	return info
 }
 
 func round2(v float64) float64 {

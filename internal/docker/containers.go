@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/network"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 
 	"dockpilot/internal/config"
 )
@@ -39,13 +39,14 @@ type ContainerInfo struct {
 }
 
 func ListContainers(ctx context.Context) ([]ContainerInfo, error) {
-	cs, err := CLI.ContainerList(ctx, container.ListOptions{All: true})
+	res, err := CLI.ContainerList(ctx, client.ContainerListOptions{All: true})
 	if err != nil {
 		return nil, err
 	}
+	cs := res.Items
 	var totalMem uint64
-	if info, err := CLI.Info(ctx); err == nil {
-		totalMem = uint64(info.MemTotal)
+	if info, err := CLI.Info(ctx, client.InfoOptions{}); err == nil {
+		totalMem = uint64(info.Info.MemTotal)
 	}
 	results := make([]ContainerInfo, len(cs))
 	var wg sync.WaitGroup
@@ -58,12 +59,12 @@ func ListContainers(ctx context.Context) ([]ContainerInfo, error) {
 			ID:      c.ID[:12],
 			Name:    name,
 			Image:   c.Image,
-			State:   c.State,
-			Running: c.State == "running",
+			State:   string(c.State),
+			Running: c.State == container.StateRunning,
 			Status:  c.Status,
 			Stack:   c.Labels["com.docker.compose.project"],
 		}
-		if c.State == "running" {
+		if c.State == container.StateRunning {
 			wg.Add(1)
 			go func(idx int, cid string) {
 				defer wg.Done()
@@ -82,7 +83,8 @@ func ListContainers(ctx context.Context) ([]ContainerInfo, error) {
 }
 
 func fillStats(ctx context.Context, id string, info *ContainerInfo, totalMem uint64) {
-	resp, err := CLI.ContainerStats(ctx, id, false)
+	// Ohne vorherige Messung bleibt PreCPUStats leer und die CPU-Last ließe sich nicht berechnen.
+	resp, err := CLI.ContainerStats(ctx, id, client.ContainerStatsOptions{IncludePreviousSample: true})
 	if err != nil {
 		return
 	}
@@ -149,11 +151,14 @@ func ContainerAction(ctx context.Context, id, action string) error {
 	}
 	switch action {
 	case "start":
-		return CLI.ContainerStart(ctx, id, container.StartOptions{})
+		_, err := CLI.ContainerStart(ctx, id, client.ContainerStartOptions{})
+		return err
 	case "stop":
-		return CLI.ContainerStop(ctx, id, container.StopOptions{})
+		_, err := CLI.ContainerStop(ctx, id, client.ContainerStopOptions{})
+		return err
 	case "restart":
-		return CLI.ContainerRestart(ctx, id, container.StopOptions{})
+		_, err := CLI.ContainerRestart(ctx, id, client.ContainerRestartOptions{})
+		return err
 	case "update":
 		return recreateWithNewImage(ctx, id)
 	default:
@@ -162,14 +167,15 @@ func ContainerAction(ctx context.Context, id, action string) error {
 }
 
 func recreateWithNewImage(ctx context.Context, id string) error {
-	c, err := CLI.ContainerInspect(ctx, id)
+	ir, err := CLI.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
 	if err != nil {
 		return err
 	}
+	c := ir.Container
 	imageRef := c.Config.Image
 
 	pullAuth := config.PullAuthForImage(imageRef)
-	out, err := CLI.ImagePull(ctx, imageRef, image.PullOptions{RegistryAuth: pullAuth})
+	out, err := CLI.ImagePull(ctx, imageRef, client.ImagePullOptions{RegistryAuth: pullAuth})
 	if err != nil {
 		return fmt.Errorf("pull failed: %w", err)
 	}
@@ -198,26 +204,31 @@ func recreateWithNewImage(ctx context.Context, id string) error {
 	name := strings.TrimPrefix(c.Name, "/")
 	backup := name + "-dockpilot-old"
 	wasRunning := c.State != nil && c.State.Running
-	if err := CLI.ContainerStop(ctx, c.ID, container.StopOptions{}); err != nil {
+	if _, err := CLI.ContainerStop(ctx, c.ID, client.ContainerStopOptions{}); err != nil {
 		return fmt.Errorf("stop failed: %w", err)
 	}
-	if err := CLI.ContainerRename(ctx, c.ID, backup); err != nil {
+	if _, err := CLI.ContainerRename(ctx, c.ID, client.ContainerRenameOptions{NewName: backup}); err != nil {
 		if wasRunning {
-			CLI.ContainerStart(ctx, c.ID, container.StartOptions{})
+			CLI.ContainerStart(ctx, c.ID, client.ContainerStartOptions{})
 		}
 		return fmt.Errorf("rename failed: %w", err)
 	}
 	rollback := func(cause error) error {
-		if err := CLI.ContainerRename(ctx, c.ID, name); err != nil {
+		if _, err := CLI.ContainerRename(ctx, c.ID, client.ContainerRenameOptions{NewName: name}); err != nil {
 			return fmt.Errorf("%w; Wiederherstellen fehlgeschlagen, alter Container heißt jetzt %s: %v", cause, backup, err)
 		}
 		if wasRunning {
-			CLI.ContainerStart(ctx, c.ID, container.StartOptions{})
+			CLI.ContainerStart(ctx, c.ID, client.ContainerStartOptions{})
 		}
 		return fmt.Errorf("%w (alter Container wiederhergestellt)", cause)
 	}
 
-	resp, err := CLI.ContainerCreate(ctx, c.Config, c.HostConfig, netCfg, nil, name)
+	resp, err := CLI.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config:           c.Config,
+		HostConfig:       c.HostConfig,
+		NetworkingConfig: netCfg,
+		Name:             name,
+	})
 	if err != nil {
 		return rollback(fmt.Errorf("create failed: %w", err))
 	}
@@ -226,15 +237,18 @@ func recreateWithNewImage(ctx context.Context, id string) error {
 		if netName == primaryNet {
 			continue
 		}
-		CLI.NetworkConnect(ctx, netName, resp.ID, &network.EndpointSettings{
-			Aliases: filterAliases(ep.Aliases, c.ID[:12]),
+		CLI.NetworkConnect(ctx, netName, client.NetworkConnectOptions{
+			Container: resp.ID,
+			EndpointConfig: &network.EndpointSettings{
+				Aliases: filterAliases(ep.Aliases, c.ID[:12]),
+			},
 		})
 	}
-	if err := CLI.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-		CLI.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
+	if _, err := CLI.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
+		CLI.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true})
 		return rollback(fmt.Errorf("start failed: %w", err))
 	}
-	if err := CLI.ContainerRemove(ctx, c.ID, container.RemoveOptions{}); err != nil {
+	if _, err := CLI.ContainerRemove(ctx, c.ID, client.ContainerRemoveOptions{}); err != nil {
 		return fmt.Errorf("neuer Container läuft, alter (%s) konnte nicht entfernt werden: %w", backup, err)
 	}
 	return nil
@@ -272,11 +286,11 @@ func filterAliases(aliases []string, shortID string) []string {
 
 func ContainerSizes(ctx context.Context) (map[string]struct{ RW, RootFS int64 }, error) {
 	result := map[string]struct{ RW, RootFS int64 }{}
-	cs, err := CLI.ContainerList(ctx, container.ListOptions{All: true, Size: true})
+	res, err := CLI.ContainerList(ctx, client.ContainerListOptions{All: true, Size: true})
 	if err != nil {
 		return result, err
 	}
-	for _, c := range cs {
+	for _, c := range res.Items {
 		result[c.ID[:12]] = struct{ RW, RootFS int64 }{c.SizeRw, c.SizeRootFs}
 	}
 	return result, nil
@@ -319,9 +333,9 @@ func selfFullID() string {
 	defer cancel()
 	var err error
 	if ref != "" {
-		var c container.InspectResponse
-		c, err = CLI.ContainerInspect(ctx, ref)
-		if err == nil && (ref != host || c.Config == nil || c.Config.Hostname == host) {
+		var r client.ContainerInspectResult
+		r, err = CLI.ContainerInspect(ctx, ref, client.ContainerInspectOptions{})
+		if c := r.Container; err == nil && (ref != host || c.Config == nil || c.Config.Hostname == host) {
 			selfID = c.ID
 			return selfID
 		}
@@ -339,8 +353,8 @@ func IsSelf(ctx context.Context, ref string) bool {
 	if id == "" {
 		return false
 	}
-	c, err := CLI.ContainerInspect(ctx, ref)
-	return err == nil && c.ID == id
+	r, err := CLI.ContainerInspect(ctx, ref, client.ContainerInspectOptions{})
+	return err == nil && r.Container.ID == id
 }
 
 func SelfContainerID() string {

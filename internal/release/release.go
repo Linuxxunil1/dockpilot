@@ -19,6 +19,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/moby/moby/client"
+
 	"dockpilot/internal/config"
 	"dockpilot/internal/docker"
 	"dockpilot/internal/regcerts"
@@ -126,11 +128,11 @@ func selfImage() (string, error) {
 	if id == "" {
 		id, _ = os.Hostname()
 	}
-	c, err := docker.CLI.ContainerInspect(context.Background(), id)
+	r, err := docker.CLI.ContainerInspect(context.Background(), id, client.ContainerInspectOptions{})
 	if err != nil {
 		return "", fmt.Errorf("eigener Container nicht gefunden: %w", err)
 	}
-	return c.Config.Image, nil
+	return r.Container.Config.Image, nil
 }
 
 // splitRef zerlegt "host/pfad/name:tag" in Registry-Host und Repository.

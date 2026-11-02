@@ -6,8 +6,8 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/docker/docker/api/types/container"
 	"github.com/gorilla/websocket"
+	"github.com/moby/moby/client"
 
 	"dockpilot/internal/docker"
 )
@@ -31,8 +31,8 @@ func ServeContainer(w http.ResponseWriter, r *http.Request, containerID string) 
 		return
 	}
 
-	exec, err := docker.CLI.ContainerExecCreate(ctx, containerID, container.ExecOptions{
-		Tty:          true,
+	exec, err := docker.CLI.ExecCreate(ctx, containerID, client.ExecCreateOptions{
+		TTY:          true,
 		AttachStdin:  true,
 		AttachStdout: true,
 		AttachStderr: true,
@@ -43,7 +43,7 @@ func ServeContainer(w http.ResponseWriter, r *http.Request, containerID string) 
 		closeConn(conn, fmt.Sprintf("Shell starten fehlgeschlagen: %v", err))
 		return
 	}
-	hijack, err := docker.CLI.ContainerExecAttach(ctx, exec.ID, container.ExecAttachOptions{Tty: true})
+	hijack, err := docker.CLI.ExecAttach(ctx, exec.ID, client.ExecAttachOptions{TTY: true})
 	if err != nil {
 		closeConn(conn, fmt.Sprintf("Verbinden fehlgeschlagen: %v", err))
 		return
@@ -82,7 +82,7 @@ func ServeContainer(w http.ResponseWriter, r *http.Request, containerID string) 
 				}
 			case "resize":
 				if m.Cols > 0 && m.Rows > 0 {
-					docker.CLI.ContainerExecResize(ctx, exec.ID, container.ResizeOptions{Height: uint(m.Rows), Width: uint(m.Cols)})
+					docker.CLI.ExecResize(ctx, exec.ID, client.ExecResizeOptions{Height: uint(m.Rows), Width: uint(m.Cols)})
 				}
 			}
 		}

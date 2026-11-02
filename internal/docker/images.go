@@ -4,9 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/image"
+	"github.com/moby/moby/client"
 )
 
 type ImageInfo struct {
@@ -20,17 +18,17 @@ type ImageInfo struct {
 
 func ListImages(ctx context.Context) ([]ImageInfo, error) {
 	usedIDs := map[string]bool{}
-	cs, _ := CLI.ContainerList(ctx, containerListAll())
-	for _, c := range cs {
+	cs, _ := CLI.ContainerList(ctx, client.ContainerListOptions{All: true})
+	for _, c := range cs.Items {
 		usedIDs[c.ImageID] = true
 	}
 
-	imgs, err := CLI.ImageList(ctx, image.ListOptions{All: false})
+	imgs, err := CLI.ImageList(ctx, client.ImageListOptions{All: false})
 	if err != nil {
 		return nil, err
 	}
-	result := make([]ImageInfo, 0, len(imgs))
-	for _, img := range imgs {
+	result := make([]ImageInfo, 0, len(imgs.Items))
+	for _, img := range imgs.Items {
 		shortID := img.ID
 		if strings.HasPrefix(shortID, "sha256:") {
 			shortID = shortID[7:]
@@ -51,20 +49,16 @@ func ListImages(ctx context.Context) ([]ImageInfo, error) {
 }
 
 func DeleteImage(ctx context.Context, id string) error {
-	_, err := CLI.ImageRemove(ctx, id, image.RemoveOptions{Force: false, PruneChildren: true})
+	_, err := CLI.ImageRemove(ctx, id, client.ImageRemoveOptions{Force: false, PruneChildren: true})
 	return err
 }
 
 // PruneImages removes all images not used by any container (like `docker image prune -a`).
 // Without dangling=false the daemon only removes untagged <none> images.
 func PruneImages(ctx context.Context) (deleted int, freed int64, err error) {
-	report, err := CLI.ImagesPrune(ctx, filters.NewArgs(filters.Arg("dangling", "false")))
+	res, err := CLI.ImagePrune(ctx, client.ImagePruneOptions{Filters: make(client.Filters).Add("dangling", "false")})
 	if err != nil {
 		return 0, 0, err
 	}
-	return len(report.ImagesDeleted), int64(report.SpaceReclaimed), nil
-}
-
-func containerListAll() container.ListOptions {
-	return container.ListOptions{All: true}
+	return len(res.Report.ImagesDeleted), int64(res.Report.SpaceReclaimed), nil
 }

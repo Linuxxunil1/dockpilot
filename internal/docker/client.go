@@ -1,13 +1,13 @@
 package docker
 
 import (
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/client"
 )
 
 var CLI *client.Client
 
 func Init() error {
-	c, err := client.NewClientWithOpts(
+	c, err := client.New(
 		client.FromEnv,
 		client.WithAPIVersionNegotiation(),
 	)
