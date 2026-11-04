@@ -900,6 +900,7 @@ async function loadUsers(){
     if(!ru.ok||!rg.ok){el.innerHTML=emptyRow('Fehler beim Laden');return}
     const list=await ru.json(),gj=await rg.json();
     _groups=gj.groups||[];_permCatalog=gj.permissions||[];_allServers=rs.ok?await rs.json():[];
+    window._userList=list;
     renderGroups();
     $('usr-new-group').innerHTML='<option value="">ohne Gruppe</option>'+_groups.map(g=>`<option value="${esc(g.id)}">${esc(g.name)}</option>`).join('');
     if(_groups.some(g=>g.id==='standard'))$('usr-new-group').value='standard';
@@ -919,7 +920,6 @@ async function loadUsers(){
         ${self?'':`<button class="ibtn bad" onclick="deleteUser(this)" aria-label="Löschen">${ico('trash')}</button>`}
       </div>`;
     }).join('')||emptyRow('Keine Benutzer');
-    window._userList=list;
   }catch(e){el.innerHTML=emptyRow('Netzwerkfehler')}
 }
 const serverLabel=id=>{

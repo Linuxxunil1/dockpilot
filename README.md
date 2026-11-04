@@ -1,11 +1,78 @@
-# dockpilot
+<div align="center">
 
-Schlankes Docker-Management-Dashboard (Go + Docker SDK) — Container-Übersicht,
-Live-Stats, Start/Stop/Restart/Update, Compose-Stack-Verwaltung, Remote-Server per SSH
-und ein integriertes Web-Terminal.
+<img src="internal/web/static/logo.svg" width="88" alt="DockPilot-Logo">
+
+# DockPilot
+
+**Das schlanke Docker-Dashboard für Homelab und Server – ein Container, eine Oberfläche, alle Hosts.**
+
+Container, Compose-Stacks, Images, Web-Konsolen und mehrere Docker-Hosts zentral verwalten.
+Geschrieben in Go, ein einziges Image, eingerichtet in zwei Minuten.
+
+[![Build](https://github.com/Linuxxunil1/dockpilot/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/Linuxxunil1/dockpilot/actions/workflows/docker-publish.yml)
+[![Image](https://img.shields.io/badge/ghcr.io-linuxxunil1%2Fdockpilot-26215C?logo=docker&logoColor=white)](https://github.com/Linuxxunil1/dockpilot/pkgs/container/dockpilot)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
+[![Lizenz: MIT](https://img.shields.io/badge/Lizenz-MIT-green)](LICENSE)
+
+[Schnellstart](#schnellstart) · [Funktionen](#funktionen) · [Screenshots](#screenshots) · [Wiki](https://github.com/Linuxxunil1/dockpilot/wiki)
+
+<br>
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/dashboard-light.png">
+  <img src="docs/images/dashboard-dark.png" alt="DockPilot-Dashboard mit Host-Auslastung, Docker-Speicher und Containern nach Stacks gruppiert" width="100%">
+</picture>
+
+</div>
+
+## Warum DockPilot?
+
+- **Alles in einem Container.** Kein Datenbank-Server, keine Abhängigkeiten. Image ziehen, starten, fertig.
+- **Ein Dashboard für alle Hosts.** Im Hub-Modus verwaltet ein DockPilot beliebig viele weitere Docker-Hosts (Agents) und SSH-Server.
+- **Konsole im Browser.** Shell in jedem Container und SSH auf jeden Server, ohne zusätzliche Software.
+- **Mehrere Benutzer mit fein abgestuften Rechten.** Gruppen legen fest, wer was auf welchem Server darf.
+- **Sicher eingestellt ab Werk.** Kein Standardpasswort, Setup-Code, Login-Drosselung, CSRF-Schutz, HTTPS nativ oder per Reverse Proxy.
+- **Hell und dunkel.** Die Oberfläche passt sich an, auf Deutsch.
+
+## Schnellstart
+
+```bash
+docker run -d --name dockpilot --restart unless-stopped \
+  -p 127.0.0.1:8080:8080 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v dockpilot_data:/data \
+  -v dockpilot_stacks:/opt/dockpilot/stacks \
+  ghcr.io/linuxxunil1/dockpilot:latest
+
+docker logs dockpilot   # zeigt den Setup-Code
+```
+
+Dann `http://127.0.0.1:8080` öffnen, Setup-Code eingeben, Admin anlegen. Für den
+Dauerbetrieb die [Compose-Datei unten](#deployment) verwenden und DockPilot nur über
+HTTPS veröffentlichen ([Anleitung im Wiki](https://github.com/Linuxxunil1/dockpilot/wiki/TLS-und-Reverse-Proxy)).
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/stacks.png" alt="Stack-Editor mit Compose-Datei"><br><b>Stacks</b> – Compose-Dateien im Browser bearbeiten und deployen</td>
+    <td width="50%"><img src="docs/images/container-console.png" alt="Konsole in einem Container"><br><b>Container-Konsole</b> – Shell direkt im Container</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/agents.png" alt="Verbundene Agents"><br><b>Hub &amp; Agents</b> – weitere Docker-Hosts zentral verwalten</td>
+    <td><img src="docs/images/ssh-console.png" alt="SSH-Konsole im Browser"><br><b>SSH-Zugriff</b> – Web-Terminal auf hinterlegte Server</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/users.png" alt="Benutzer und Gruppen"><br><b>Benutzer &amp; Gruppen</b> – Rechte je Funktion und Server</td>
+    <td><img src="docs/images/setup.png" alt="Setup-Wizard"><br><b>Ersteinrichtung</b> – Standalone, Hub oder Agent</td>
+  </tr>
+</table>
+
+## Dokumentation
 
 Ausführliche Anleitungen und technische Details stehen im
-[Wiki](https://github.com/Linuxxunil1/dockpilot/wiki) (Quelle: Ordner `wiki/`).
+[Wiki](https://github.com/Linuxxunil1/dockpilot/wiki) (Quelle: Ordner `wiki/`):
+Installation, Konfiguration, Hub und Agents, Reverse Proxy, Backup, API und Fehlerbehebung.
 
 ## Deployment
 
