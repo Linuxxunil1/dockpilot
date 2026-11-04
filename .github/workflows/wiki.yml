@@ -35,7 +35,12 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.wiki.git" wiki-repo
+          WIKI_URL="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.wiki.git"
+          if ! git ls-remote "$WIKI_URL" >/dev/null 2>&1; then
+            echo "::error::Wiki-Repository nicht gefunden. In den Repo-Einstellungen 'Wikis' aktivieren und im Reiter 'Wiki' einmal eine erste Seite speichern (Inhalt egal), dann den Workflow erneut starten."
+            exit 1
+          fi
+          git clone --depth 1 "$WIKI_URL" wiki-repo
           rsync -a --delete --exclude '.git' wiki/ wiki-repo/
           cd wiki-repo
           git add -A
