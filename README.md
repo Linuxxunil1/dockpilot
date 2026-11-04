@@ -4,6 +4,9 @@ Schlankes Docker-Management-Dashboard (Go + Docker SDK) — Container-Übersicht
 Live-Stats, Start/Stop/Restart/Update, Compose-Stack-Verwaltung, Remote-Server per SSH
 und ein integriertes Web-Terminal.
 
+Ausführliche Anleitungen und technische Details stehen im
+[Wiki](https://github.com/Linuxxunil1/dockpilot/wiki) (Quelle: Ordner `wiki/`).
+
 ## Deployment
 
 `docker-compose.yaml` anlegen und starten — kein Repo-Clone nötig.
